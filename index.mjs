@@ -243,7 +243,7 @@ function agentOptions(events, fallback) {
 		...maxTokens === void 0 ? {} : { maxTokens }
 	};
 }
-async function leaseSource(ctx, sessionId) {
+async function withSourceAgent(ctx, sessionId, operation) {
 	let handle;
 	let agent = ctx.agents.get(sessionId);
 	if (agent === void 0) {
@@ -254,21 +254,11 @@ async function leaseSource(ctx, sessionId) {
 		});
 		agent = handle.agent;
 	}
-	const release = agent.reserveTurnAdmission();
-	if (release === void 0) {
+	try {
+		return await agent.runMaintenance(async () => operation(agent));
+	} finally {
 		await handle?.dispose();
-		throw new Error("会话正在运行或已有待处理输入，暂时不能创建历史版本。");
 	}
-	let closed = false;
-	return {
-		agent,
-		close: async () => {
-			if (closed) return;
-			closed = true;
-			release();
-			await handle?.dispose();
-		}
-	};
 }
 function inheritedSeed(source, boundary) {
 	if (boundary === -1) return [];
@@ -297,13 +287,7 @@ function appendSurfaceSeedEvent(events, type, data, intent) {
 }
 function appendManualTurn(events, manual) {
 	const { turn, user, assistant } = manual;
-	appendLogSeedEvent(events, "turn/start", {
-		turn,
-		trigger: {
-			kind: "message",
-			source: user.source
-		}
-	});
+	appendLogSeedEvent(events, "turn/start", { turn });
 	appendSurfaceSeedEvent(events, "user/message", user, { surfaceOp: "append" });
 	appendLogSeedEvent(events, "step/start", {
 		turn,
@@ -370,37 +354,35 @@ async function recoverOperation(inverses) {
 }
 async function runOperation(ctx, operation) {
 	const sourceId = sessionIdOf(operation.sessionId);
-	const lease = await leaseSource(ctx, sourceId);
-	const childId = sessionIdOf(`session-${crypto.randomUUID()}`);
-	const inverses = [];
-	try {
-		const events = lease.agent.session.events;
-		const plan = planOperation(operation, events);
-		const options = agentOptions(events, lease.agent.options);
-		const child = await createVersionAgent(ctx, lease.agent.session, childId, plan, options);
-		inverses.push(() => child.dispose());
-		const workspace = sourceWorkspace(ctx, sourceId);
-		if (workspace !== void 0) {
-			await workspace.attachSession(childId);
-			inverses.push(() => workspace.detachSession(childId));
-		}
-		for (const message of plan.queuedUsers) child.agent.followup(message);
-		await lease.close();
-		inverses.length = 0;
-		return {
-			sessionId: childId,
-			queuedTurns: plan.queuedUsers.length
-		};
-	} catch (error) {
+	return withSourceAgent(ctx, sourceId, async (source) => {
+		const childId = sessionIdOf(`session-${crypto.randomUUID()}`);
+		const inverses = [];
 		try {
-			await recoverOperation(inverses);
-		} catch (recoveryError) {
-			throw new AggregateError([error, recoveryError], "版本操作及其恢复均失败。");
+			const events = source.session.events;
+			const plan = planOperation(operation, events);
+			const options = agentOptions(events, source.options);
+			const child = await createVersionAgent(ctx, source.session, childId, plan, options);
+			inverses.push(() => child.dispose());
+			const workspace = sourceWorkspace(ctx, sourceId);
+			if (workspace !== void 0) {
+				await workspace.attachSession(childId);
+				inverses.push(() => workspace.detachSession(childId));
+			}
+			for (const message of plan.queuedUsers) child.agent.followup(message);
+			inverses.length = 0;
+			return {
+				sessionId: childId,
+				queuedTurns: plan.queuedUsers.length
+			};
+		} catch (error) {
+			try {
+				await recoverOperation(inverses);
+			} catch (recoveryError) {
+				throw new AggregateError([error, recoveryError], "版本操作及其恢复均失败。");
+			}
+			throw error;
 		}
-		throw error;
-	} finally {
-		await lease.close();
-	}
+	});
 }
 function ownVersionEvent(header, events) {
 	const inherited = header.seedLength ?? 0;

@@ -1,6 +1,6 @@
 import { clientBundle } from './.dsh/packages/client/tsdown.client.ts'
 
-const PLUGIN_ID = 'moeblack/message-edit'
+const PLUGIN_ID = 'dsh-message-edit'
 const [, clientConfig] = clientBundle(PLUGIN_ID, [])
 
 export default [

@@ -1,9 +1,36 @@
 {
   "name": "dsh-message-edit",
   "description": "Registry-distributed Message Edit plugin for DeepSeek Harness",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
+  "main": "./index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.mjs",
+    "client.js",
+    "client.js.map",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "dshClient": {
+    "platform": "web",
+    "inject": [
+      "@deepseek-ai/dsh-client-connection",
+      "@deepseek-ai/dsh-client-runtime",
+      "@deepseek-ai/dsh-client-ui-conversation"
+    ]
+  },
   "scripts": {
     "build": "node ./scripts/build.mjs"
   },
