@@ -1,0 +1,20 @@
+{
+  "id": "moeblack/message-edit",
+  "version": "0.2.0",
+  "main": "./index.mjs",
+  "description": "Branch-based editing, rerolling, retrying, and version navigation for DSH conversations",
+  "engines": {
+    "dsh": ">=0.0.1"
+  },
+  "contributes": {
+    "tools": [],
+    "skills": []
+  },
+  "client": {
+    "main": "./client.js",
+    "inject": [
+      "@deepseek-ai/dsh-client-runtime",
+      "@deepseek-ai/dsh-client-ui-conversation"
+    ]
+  }
+}

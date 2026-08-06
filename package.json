@@ -1,0 +1,11 @@
+{
+  "name": "dsh-message-edit",
+  "description": "Registry-distributed Message Edit plugin for DeepSeek Harness",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node ./scripts/build.mjs"
+  },
+  "license": "BSD-3-Clause"
+}

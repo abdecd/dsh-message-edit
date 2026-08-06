@@ -1,0 +1,43 @@
+{
+  "extends": "./.dsh/tsconfig.base.client.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist/types",
+    "tsBuildInfoFile": "dist/tsconfig.tsbuildinfo"
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "./.dsh/vendor/cordis"
+    },
+    {
+      "path": "./.dsh/packages/core/session"
+    },
+    {
+      "path": "./.dsh/packages/core/agent"
+    },
+    {
+      "path": "./.dsh/packages/llm/llm"
+    },
+    {
+      "path": "./.dsh/packages/session-query/session-query"
+    },
+    {
+      "path": "./.dsh/packages/workspace/workspace"
+    },
+    {
+      "path": "./.dsh/packages/client/connection"
+    },
+    {
+      "path": "./.dsh/packages/client/runtime"
+    },
+    {
+      "path": "./.dsh/packages/client/ui-slots"
+    },
+    {
+      "path": "./.dsh/packages/client/ui-conversation"
+    }
+  ]
+}
