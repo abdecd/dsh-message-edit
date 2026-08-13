@@ -15,8 +15,8 @@ const inject = [
 	"agents",
 	"sessionPersistence",
 	"sessionQuery",
-	"workspace",
-	"httpServer"
+	"workspaceRegistry",
+	"webServer"
 ];
 function pairVersionEffect(sourceSessionId, effect) {
 	return {
@@ -341,7 +341,7 @@ async function createVersionAgent(ctx, source, childId, plan, options) {
 	}
 }
 function sourceWorkspace(ctx, sessionId) {
-	return ctx.workspace.list().find((workspace) => workspace.sessionIds.includes(sessionId));
+	return ctx.workspaceRegistry.list().find((workspace) => workspace.sessionIds.includes(sessionId));
 }
 async function recoverOperation(inverses) {
 	const failures = [];
@@ -591,7 +591,7 @@ async function handleRoute(ctx, request, response) {
 }
 /** Register the reversible route contribution. */
 function apply(ctx) {
-	ctx.effect(() => ctx.httpServer.register({
+	ctx.effect(() => ctx.webServer.register({
 		kind: "exact",
 		path: MESSAGE_EDIT_PATH,
 		handler: (request, response) => handleRoute(ctx, request, response)

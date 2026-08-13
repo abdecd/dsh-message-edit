@@ -28,7 +28,7 @@
       "path": "./.dsh/packages/workspace/workspace"
     },
     {
-      "path": "./.dsh/packages/client/connection"
+      "path": "./.dsh/packages/client/connection/tsconfig.client.json"
     },
     {
       "path": "./.dsh/packages/client/runtime"

@@ -1,5 +1,5 @@
 /** Host half of Message Edit: turn-atomic forks and structurally reversible versions. */
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { Agent, AgentHandle, AgentOptions } from '@deepseek-ai/dsh-agent'
 import type {
   SessionId,
@@ -88,9 +88,9 @@ interface HttpServerLike {
   }): () => void
 }
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
-    httpServer: HttpServerLike
+    webServer: HttpServerLike
   }
 }
 
@@ -103,8 +103,8 @@ export const inject = [
   'agents',
   'sessionPersistence',
   'sessionQuery',
-  'workspace',
-  'httpServer',
+  'workspaceRegistry',
+  'webServer',
 ]
 
 type UserEvent = SessionEvent<'user/message'>
@@ -512,7 +512,7 @@ async function createVersionAgent(
 }
 
 function sourceWorkspace(ctx: Context, sessionId: SessionId): Workspace | undefined {
-  return ctx.workspace.list().find(workspace => workspace.sessionIds.includes(sessionId))
+  return ctx.workspaceRegistry.list().find(workspace => workspace.sessionIds.includes(sessionId))
 }
 
 type OperationInverse = () => void | Promise<void>
@@ -804,7 +804,7 @@ async function handleRoute(ctx: Context, request: HttpRequestLike, response: Htt
 
 /** Register the reversible route contribution. */
 export function apply(ctx: Context): void {
-  ctx.effect(() => ctx.httpServer.register({
+  ctx.effect(() => ctx.webServer.register({
     kind: 'exact',
     path: MESSAGE_EDIT_PATH,
     handler: (request, response) => handleRoute(ctx, request, response),
