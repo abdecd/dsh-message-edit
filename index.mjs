@@ -320,17 +320,37 @@ function versionSeed(source, plan) {
 		inheritedLength
 	};
 }
+function sessionPreset(session) {
+	for (let index = session.events.length - 1; index >= 0; index -= 1) {
+		const event = session.events[index];
+		if (event?.type === "agent-preset/selected") return event.data.agentPreset;
+	}
+	return session.header.agentPreset;
+}
 async function createVersionAgent(ctx, source, childId, plan, options) {
 	const seed = versionSeed(source, plan);
+	const presets = ctx.get("agentPresets");
+	const presetId = sessionPreset(source);
+	let agentPreset;
+	let setup;
+	if (presets !== void 0 && presetId !== void 0) {
+		const resolved = (await presets.resolve(presetId)).id;
+		agentPreset = resolved;
+		setup = async (agentCtx) => {
+			await presets.mount(agentCtx, resolved);
+		};
+	}
 	const child = await ctx.agents.create({
 		sessionId: childId,
 		seed: seed.events,
 		meta: {
 			...source.header.cwd === void 0 ? {} : { cwd: source.header.cwd },
 			parentSession: source.id,
-			seedLength: seed.inheritedLength
+			seedLength: seed.inheritedLength,
+			...agentPreset === void 0 ? {} : { agentPreset }
 		},
-		agentOptions: options
+		agentOptions: options,
+		...setup === void 0 ? {} : { setup }
 	});
 	try {
 		await ctx.sessions.flush(child.agent.session);

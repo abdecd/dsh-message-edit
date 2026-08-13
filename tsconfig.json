@@ -19,6 +19,9 @@
       "path": "./.dsh/packages/core/agent"
     },
     {
+      "path": "./.dsh/packages/preset/agent-presets"
+    },
+    {
       "path": "./.dsh/packages/llm/llm"
     },
     {

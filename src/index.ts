@@ -1,6 +1,7 @@
 /** Host half of Message Edit: turn-atomic forks and structurally reversible versions. */
 import type { Context } from '@deepseek-ai/cordis'
-import type { Agent, AgentHandle, AgentOptions } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentHandle, AgentOptions, AgentSetup } from '@deepseek-ai/dsh-agent'
+import type { PresetBearingSession } from '@deepseek-ai/dsh-agent-presets'
 import type {
   SessionId,
   Session,
@@ -484,6 +485,14 @@ function versionSeed(source: Session, plan: OperationPlan): {
   return { events, inheritedLength }
 }
 
+function sessionPreset(session: PresetBearingSession): string | undefined {
+  for (let index = session.events.length - 1; index >= 0; index -= 1) {
+    const event = session.events[index]
+    if (event?.type === 'agent-preset/selected') return event.data.agentPreset
+  }
+  return session.header.agentPreset
+}
+
 async function createVersionAgent(
   ctx: Context,
   source: Session,
@@ -492,6 +501,15 @@ async function createVersionAgent(
   options: AgentOptions,
 ): Promise<AgentHandle> {
   const seed = versionSeed(source, plan)
+  const presets = ctx.get('agentPresets')
+  const presetId = sessionPreset(source)
+  let agentPreset: string | undefined
+  let setup: AgentSetup | undefined
+  if (presets !== undefined && presetId !== undefined) {
+    const resolved = (await presets.resolve(presetId)).id
+    agentPreset = resolved
+    setup = async (agentCtx) => { await presets.mount(agentCtx, resolved) }
+  }
   const child = await ctx.agents.create({
     sessionId: childId,
     seed: seed.events,
@@ -499,8 +517,10 @@ async function createVersionAgent(
       ...source.header.cwd === undefined ? {} : { cwd: source.header.cwd },
       parentSession: source.id,
       seedLength: seed.inheritedLength,
+      ...agentPreset === undefined ? {} : { agentPreset },
     },
     agentOptions: options,
+    ...setup === undefined ? {} : { setup },
   })
   try {
     await ctx.sessions.flush(child.agent.session)
