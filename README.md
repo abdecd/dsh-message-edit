@@ -84,10 +84,11 @@ interface MessageEditVersionEvent {
 ## 构建
 
 ```bash
-DSH_ROOT=/root/dsh node scripts/build.mjs
+npm install
+npm run build
 ```
 
-构建生成：
+构建基于 npm 发布的 `@deepseek-ai/*@0.1.0-rc.6` 类型与本地工具链（typescript、tsdown、lightningcss），不再依赖 dsh 源码树。构建生成：
 
 - `index.mjs`：Host 插件
 - `client.js`：Browser 插件
@@ -96,7 +97,13 @@ DSH_ROOT=/root/dsh node scripts/build.mjs
 ## 安装
 
 ```bash
-dsh plugin --profile web add -w link:/root/message-edit-plugin
+dsh plugin --profile web add dsh-message-edit
+```
+
+或本地开发：
+
+```bash
+dsh plugin --profile web add -w link:/path/to/dsh-message-edit
 ```
 
 `dsh plugin` 是 pnpm 转发器：`add` 后会自动识别 `dsh.bundle` 声明并把插件收编进 profile 的 `dsh.profile.bundles`，重启 dsh 即生效。本地开发建议用 `link:`（符号链接），改动源码重构建后重启即更新。

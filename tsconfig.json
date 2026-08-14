@@ -1,46 +1,27 @@
 {
-  "extends": "./.dsh/tsconfig.base.client.json",
   "compilerOptions": {
-    "rootDir": "src",
-    "outDir": "dist/types",
-    "tsBuildInfoFile": "dist/tsconfig.tsbuildinfo"
+    "target": "es2024",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": false,
+    "types": [],
+    "noEmit": true,
+    "incremental": true,
+    "tsBuildInfoFile": "node_modules/.cache/tsconfig.tsbuildinfo"
   },
   "include": [
     "src"
-  ],
-  "references": [
-    {
-      "path": "./.dsh/vendor/cordis"
-    },
-    {
-      "path": "./.dsh/packages/core/session"
-    },
-    {
-      "path": "./.dsh/packages/core/agent"
-    },
-    {
-      "path": "./.dsh/packages/preset/agent-presets"
-    },
-    {
-      "path": "./.dsh/packages/llm/llm"
-    },
-    {
-      "path": "./.dsh/packages/session-query/session-query"
-    },
-    {
-      "path": "./.dsh/packages/workspace/workspace"
-    },
-    {
-      "path": "./.dsh/packages/client/connection/tsconfig.client.json"
-    },
-    {
-      "path": "./.dsh/packages/client/runtime"
-    },
-    {
-      "path": "./.dsh/packages/client/ui-slots"
-    },
-    {
-      "path": "./.dsh/packages/client/ui-conversation"
-    }
   ]
 }
