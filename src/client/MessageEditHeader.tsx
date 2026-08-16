@@ -9,6 +9,7 @@ type MessageEditHeaderProps = PropsRuntime<'conversation.session.header.actions'
 /** Header contribution shared with the Timeline controller. */
 export function MessageEditHeader({
   useMessageEdit,
+  acquire,
   load,
   openVersion,
   reroll,
@@ -17,7 +18,11 @@ export function MessageEditHeader({
 }: MessageEditHeaderProps): ReactNode {
   const state = useMessageEdit(value => value)
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    const release = acquire()
+    load()
+    return release
+  }, [acquire, load])
 
   const timeline = state.timeline
   const versions = state.timeline?.versions ?? []

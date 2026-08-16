@@ -31,9 +31,13 @@ export interface MessageEditState {
   timeline: MessageEditTimeline | null
 }
 
+/** Merge a burst of turn completions into one refresh. */
+const REFRESH_DELAY_MS = 300
+
 /** Plain business face; the renderer binds the reserved source compartment. */
 export interface MessageEditFace {
   hooks: { messageEdit: ObservableSnapshot<MessageEditState> }
+  acquire(): () => void
   load(): void
   edit(message: EditableMessageBlock, text: string, cascade: CascadePolicy): Promise<boolean>
   retry(turn: number, cascade: CascadePolicy): Promise<boolean>
@@ -216,22 +220,36 @@ export class MessageEditController {
 
   readonly face: MessageEditFace
   private generation = 0
+  private readonly ctx: ClientContext
   private readonly sessions: ISessions
   private sessionSource: SessionFace | undefined
   private sessionSourceDispose: (() => void) | undefined
   private sessionRevision: string | undefined
   private listRevision = ''
   private refreshScheduled = false
+  private refreshTimer: ReturnType<typeof setTimeout> | undefined
   private observing = false
   private readonly navigationWaits = new Set<() => void>()
+  private disposeObservation: (() => Promise<void>) | undefined = undefined
+  private inflight: Promise<void> | null = null
+  private rerunAfter = false
+  private abort: AbortController | null = null
+  private disposed = false
+  private users = 0
 
   constructor(
     ctx: ClientContext,
     private readonly sessionId: SessionId,
   ) {
+    this.ctx = ctx
     this.sessions = ctx.get('sessions') as unknown as ISessions
     this.face = {
       hooks: { messageEdit: this.store },
+      acquire: () => {
+        this.users += 1
+        if (this.users === 1 && this.disposed) this.revive()
+        return () => this.release()
+      },
       load: () => { void this.load() },
       edit: (message, text, cascade) => this.mutate({
         action: 'edit',
@@ -250,7 +268,43 @@ export class MessageEditController {
       reroll: () => this.mutate({ action: 'reroll', sessionId: this.sessionId }),
       openVersion: sessionId => this.openWhenListed(sessionId as SessionId),
     }
-    ctx.effect(() => this.observeDependencies(), `message-edit: observe ${sessionId}`)
+    this.observe()
+  }
+
+  private observe(): void {
+    this.disposeObservation = this.ctx.effect(
+      () => this.observeDependencies(),
+      `message-edit: observe ${this.sessionId}`,
+    )
+  }
+
+  private release(): void {
+    this.users -= 1
+    if (this.users <= 0) this.dispose()
+  }
+
+  /** Tear subscriptions down once no mounted entry uses this controller. */
+  private dispose(): void {
+    if (this.disposed) return
+    this.disposed = true
+    this.generation += 1
+    if (this.refreshTimer !== undefined) {
+      clearTimeout(this.refreshTimer)
+      this.refreshTimer = undefined
+      this.refreshScheduled = false
+    }
+    this.abort?.abort()
+    this.abort = null
+    void this.disposeObservation?.()
+    this.disposeObservation = undefined
+  }
+
+  /** Re-observe after a transient zero; the retained store keeps old data
+   * until the immediate refetch below commits. */
+  private revive(): void {
+    this.disposed = false
+    this.observe()
+    this.refresh()
   }
 
   /** Bind to replaceable value sources instead of retaining a Session object. */
@@ -296,24 +350,57 @@ export class MessageEditController {
   private invalidate(): void {
     if (!this.observing || this.store.getSnapshot().status === 'idle' || this.refreshScheduled) return
     this.refreshScheduled = true
-    queueMicrotask(() => {
+    this.refreshTimer = setTimeout(() => {
+      this.refreshTimer = undefined
       this.refreshScheduled = false
-      if (this.observing && this.store.getSnapshot().status !== 'idle') void this.load()
-    })
+      if (this.observing && this.store.getSnapshot().status !== 'idle') this.refresh()
+    }, REFRESH_DELAY_MS)
   }
 
-  /** Refetch the full value-level projection; only the newest request commits. */
+  /** Invalidation-driven refetch: one in-flight request absorbs the demand
+   * and commits a single rerun once it settles. */
+  private refresh(): void {
+    if (this.disposed) return
+    if (this.inflight !== null) {
+      this.rerunAfter = true
+      return
+    }
+    void this.load()
+  }
+
+  /** Refetch the full value-level projection; concurrent callers share one
+   * request, and an invalidation during flight schedules exactly one rerun. */
   async load(): Promise<void> {
+    if (this.disposed) return
+    if (this.inflight !== null) return this.inflight
     const generation = ++this.generation
+    this.abort?.abort()
+    const abort = new AbortController()
+    this.abort = abort
     this.store.update((state) => {
       state.status = 'loading'
       state.error = null
     })
+    const run = this.performLoad(generation, abort)
+    this.inflight = run
+    try {
+      await run
+    } finally {
+      if (this.inflight === run) this.inflight = null
+      if (this.rerunAfter && !this.disposed) {
+        this.rerunAfter = false
+        void this.load()
+      }
+    }
+  }
+
+  private async performLoad(generation: number, abort: AbortController): Promise<void> {
     try {
       const response = await fetch(`${MESSAGE_EDIT_PATH}?sessionId=${encodeURIComponent(this.sessionId)}`, {
         method: 'GET',
         headers: { accept: 'application/json' },
         cache: 'no-store',
+        signal: abort.signal,
       })
       const timeline = decodeTimeline(await responseValue(response))
       if (generation !== this.generation) return
@@ -333,7 +420,8 @@ export class MessageEditController {
 
   /** Refresh only controllers whose projection has already been requested. */
   refreshIfLoaded(): void {
-    if (this.store.getSnapshot().status !== 'idle') void this.load()
+    if (this.disposed || this.store.getSnapshot().status === 'idle') return
+    this.refresh()
   }
 
   private async mutate(operation: MessageEditOperation): Promise<boolean> {
@@ -353,10 +441,12 @@ export class MessageEditController {
         body: JSON.stringify(operation),
       })
       const result = decodeOperationResult(await responseValue(response))
+      if (this.disposed) return true
       this.store.update((state) => { state.pending = null })
       await this.openWhenListed(result.sessionId as SessionId)
       return true
     } catch (error) {
+      if (this.disposed) return false
       this.store.update((state) => {
         state.pending = null
         state.error = messageOf(error)

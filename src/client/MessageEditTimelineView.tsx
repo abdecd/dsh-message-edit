@@ -169,6 +169,7 @@ function MessageCard({
 /** Conversation-view entry point. */
 export function MessageEditTimelineView({
   useMessageEdit,
+  acquire,
   load,
   edit,
   retry,
@@ -179,7 +180,11 @@ export function MessageEditTimelineView({
   const [cascade, setCascade] = useState<CascadePolicy>('truncate')
   const [editing, setEditing] = useState<EditingState | null>(null)
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    const release = acquire()
+    load()
+    return release
+  }, [acquire, load])
 
   const timeline = state.timeline
   const sections = useMemo(

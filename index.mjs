@@ -458,12 +458,51 @@ function flattenLineage(root, descendants) {
 	visit(descendants, 1);
 	return result;
 }
+/** Bounded parallel inspection of persisted branches; matches the corpus worker shape. */
+const TIMELINE_READ_CONCURRENCY = 4;
+async function mapConcurrent(items, worker) {
+	const results = new Array(items.length);
+	let cursor = 0;
+	const run = async () => {
+		for (;;) {
+			const index = cursor;
+			cursor += 1;
+			if (index >= items.length) return;
+			results[index] = await worker(items[index]);
+		}
+	};
+	const workers = Math.min(TIMELINE_READ_CONCURRENCY, items.length);
+	await Promise.all(Array.from({ length: workers }, () => run()));
+	return results;
+}
+/** Full log for the requested session: live borrow, persisted inspection, query fallback. */
+async function readCurrentLog(ctx, sessionId) {
+	const live = ctx.sessions.get(sessionId);
+	if (live !== void 0) return live.events;
+	const persistence = ctx.get("sessionPersistence");
+	if (persistence !== void 0) return (await persistence.inspect(sessionId)).events;
+	return (await ctx.sessionQuery.readSession(sessionId)).events;
+}
+/** Own-version scan window for one lineage node: the tail from the durable
+* seed boundary is enough, and root nodes cannot carry a version effect. */
+async function versionLog(ctx, record) {
+	const inherited = record.header.seedLength ?? 0;
+	const live = ctx.sessions.get(record.header.id);
+	if (live !== void 0) return live.events.slice(inherited);
+	const persistence = ctx.get("sessionPersistence");
+	if (persistence !== void 0) return (await persistence.readFrom(record.header.id, inherited)).events;
+	return (await ctx.sessionQuery.readSession(record.header.id)).events.slice(inherited);
+}
 async function timeline(ctx, sessionId) {
 	const targetTrace = await ctx.sessionQuery.traceSession(sessionId);
 	const rootId = targetTrace.complete ? targetTrace.root.header.id : targetTrace.ancestors.at(-1)?.header.id ?? sessionId;
 	const rootTrace = rootId === sessionId ? targetTrace : await ctx.sessionQuery.traceSession(rootId);
 	const lineage = flattenLineage(rootTrace.target, rootTrace.descendants);
-	const logs = await Promise.all(lineage.map(({ record }) => ctx.sessionQuery.readSession(record.header.id)));
+	const logs = await mapConcurrent(lineage, async ({ record }) => {
+		if (record.header.id === sessionId) return readCurrentLog(ctx, sessionId);
+		if (record.header.parentSession === void 0) return [];
+		return versionLog(ctx, record);
+	});
 	const recordsById = new Map(lineage.map(({ record }) => [record.header.id, record]));
 	const currentPath = /* @__PURE__ */ new Set();
 	let pathId = sessionId;
@@ -472,7 +511,7 @@ async function timeline(ctx, sessionId) {
 		pathId = recordsById.get(pathId)?.header.parentSession;
 	}
 	const versions = lineage.map(({ record, depth }, index) => {
-		const version = ownVersionEvent(record.header, logs[index]?.events ?? []);
+		const version = ownVersionEvent(record.header, logs[index] ?? []);
 		return {
 			sessionId: record.header.id,
 			...record.header.parentSession === void 0 ? {} : { parentSessionId: record.header.parentSession },
@@ -514,7 +553,7 @@ async function timeline(ctx, sessionId) {
 	const currentIndex = versions.findIndex((version) => version.current);
 	const currentLog = logs[currentIndex];
 	if (currentIndex < 0 || currentLog === void 0) throw new Error("当前版本不在版本树中。");
-	const turns = closedTurns(currentLog.events);
+	const turns = closedTurns(currentLog);
 	return {
 		sessionId,
 		messages: editableMessages(turns),

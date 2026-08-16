@@ -207,6 +207,9 @@ export function InlineMessageEdit({
     const cleanups: Array<() => void> = []
     const overlays = createOverlayHost(edit)
     let observer: MutationObserver | undefined
+    let alive = true
+    let frame: number | undefined
+    let scheduled = false
 
     const sync = (): void => {
       const actionRows = Array.from(document.querySelectorAll<HTMLElement>('[class*="actions"]'))
@@ -283,10 +286,20 @@ export function InlineMessageEdit({
     }
 
     sync()
-    observer = new MutationObserver(sync)
+    observer = new MutationObserver(() => {
+      if (!alive || scheduled) return
+      scheduled = true
+      frame = requestAnimationFrame(() => {
+        frame = undefined
+        scheduled = false
+        if (alive) sync()
+      })
+    })
     observer.observe(document.body, { childList: true, subtree: true })
 
     return () => {
+      alive = false
+      if (frame !== undefined) cancelAnimationFrame(frame)
       observer?.disconnect()
       overlays.dispose()
       for (const cleanup of cleanups.reverse()) cleanup()
