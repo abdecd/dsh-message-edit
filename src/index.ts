@@ -37,6 +37,7 @@ import {
   type MessageEditOperationResult,
   type MessageEditTimeline,
   type MessageEditVersionEvent,
+  type ModelRoute,
   type RetryableTurn,
   type StoredMessageEditVersionEvent,
   type VersionSummary,
@@ -60,6 +61,7 @@ export type {
   MessageEditEffect,
   MessageEditInverse,
   MessageEditVersionEvent,
+  ModelRoute,
   RerollOperation,
   RetryableTurn,
   RetryOperation,
@@ -534,8 +536,14 @@ function modelRoute(
   return { provider, model }
 }
 
-function agentOptions(events: readonly SessionEvent[], fallback?: AgentOptions): AgentOptions {
-  const route = modelRoute(events, fallback)
+function agentOptions(
+  events: readonly SessionEvent[],
+  fallback?: AgentOptions,
+  preferred?: ModelRoute,
+): AgentOptions {
+  /* A composer-forwarded route wins over the last logged request/header so a
+     re-execution follows the model the chat input currently targets. */
+  const route = preferred ?? modelRoute(events, fallback)
   const maxTokens = events.findLast(event => event.type === 'request/header')?.data.header.config?.maxTokens
     ?? fallback?.maxTokens
   return {
@@ -712,7 +720,7 @@ async function runOperation(ctx: Context, operation: MessageEditOperation): Prom
     try {
       const events = source.session.events
       const plan = planOperation(operation, events, source.options)
-      const options = agentOptions(events, source.options)
+      const options = agentOptions(events, source.options, operation.route)
       const child = await createVersionAgent(ctx, source.session, childId, plan, options)
       inverses.push(() => child.dispose())
 
@@ -961,9 +969,21 @@ function cascadeOf(value: unknown): CascadePolicy {
   return value
 }
 
+/** Optional composer-forwarded model selection; absence keeps the logged route. */
+function modelRouteOf(value: unknown): ModelRoute | undefined {
+  if (value === undefined) return undefined
+  const record = objectValue(value)
+  const provider = record['provider']
+  const model = record['model']
+  if (typeof provider !== 'string' || provider.length === 0) throw new TypeError('route.provider 必须是非空字符串。')
+  if (typeof model !== 'string' || model.length === 0) throw new TypeError('route.model 必须是非空字符串。')
+  return { provider, model }
+}
+
 function decodeOperation(value: unknown): MessageEditOperation {
   const record = objectValue(value)
   const sessionId = sessionIdOf(record['sessionId'])
+  const route = modelRouteOf(record['route'])
   switch (record['action']) {
     case 'edit':
       if (typeof record['text'] !== 'string') throw new TypeError('text 必须是字符串。')
@@ -974,15 +994,17 @@ function decodeOperation(value: unknown): MessageEditOperation {
         blockIndex: integerOf(record['blockIndex'], 'blockIndex'),
         text: record['text'],
         cascade: cascadeOf(record['cascade']),
+        ...(route === undefined ? {} : { route }),
       }
     case 'reroll':
-      return { action: 'reroll', sessionId }
+      return { action: 'reroll', sessionId, ...(route === undefined ? {} : { route }) }
     case 'retry':
       return {
         action: 'retry',
         sessionId,
         turn: integerOf(record['turn'], 'turn'),
         cascade: cascadeOf(record['cascade']),
+        ...(route === undefined ? {} : { route }),
       }
     case 'fork': {
       const rowsValue = record['rows']
@@ -993,7 +1015,7 @@ function decodeOperation(value: unknown): MessageEditOperation {
         if (typeof item['text'] !== 'string') throw new TypeError(`rows[${index}].text 必须是字符串。`)
         return { kind, text: item['text'] }
       })
-      return { action: 'fork', sessionId, rows }
+      return { action: 'fork', sessionId, rows, ...(route === undefined ? {} : { route }) }
     }
     default:
       throw new TypeError('action 必须是 edit、reroll、retry 或 fork。')

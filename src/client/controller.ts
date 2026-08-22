@@ -19,6 +19,7 @@ import {
   type MessageEditOperation,
   type MessageEditOperationResult,
   type MessageEditTimeline,
+  type ModelRoute,
   type RetryableTurn,
   type VersionOperation,
   type VersionSummary,
@@ -47,6 +48,36 @@ export interface MessageEditFace {
    * A trailing user row is queued so the new version generates a reply. */
   fork(rows: ForkMessageRow[]): Promise<boolean>
   openVersion(sessionId: string): Promise<void>
+}
+
+/** The selection the chat input currently targets for one session: the same
+ * value the composer's model dropdown renders and the next ordinary prompt
+ * would use. Structural view of the `session.models` wire face so the client
+ * half stays free of value imports into the connection package. */
+interface ComposerModelSelection {
+  provider: string
+  model: string
+  reasoningEffort?: string
+}
+
+interface ComposerModelsResult {
+  ok: true
+  value: { current: ComposerModelSelection }
+}
+
+interface ComposerModelsFailure {
+  ok: false
+  error: { message?: string }
+}
+
+interface ConnectionModelsApi {
+  sessions: {
+    models(payload: { sessionId: string }): Promise<{ result: ComposerModelsResult | ComposerModelsFailure }>
+  }
+}
+
+interface ConnectionHandleLike {
+  readonly api: ConnectionModelsApi
 }
 
 function messageOf(error: unknown): string {
@@ -434,6 +465,29 @@ export class MessageEditController {
     this.refresh()
   }
 
+  /** Read the model the chat input currently targets for this session — the
+   * same value the composer's model dropdown renders and the next ordinary
+   * prompt would use — so a re-execution follows it instead of the last model
+   * recorded in the source history. Best effort: when the selection cannot be
+   * resolved (subagent session, absent connection, RPC failure) the host falls
+   * back to the history-derived route. */
+  private async composerRoute(): Promise<ModelRoute | undefined> {
+    const connection = this.ctx.get('connection') as ConnectionHandleLike | undefined
+    if (connection === undefined || connection.api === undefined) return undefined
+    try {
+      const response = await connection.api.sessions.models({ sessionId: this.sessionId })
+      const result = response.result
+      if (result.ok !== true) return undefined
+      const current = result.value.current
+      if (current === undefined) return undefined
+      if (typeof current.provider !== 'string' || current.provider.length === 0) return undefined
+      if (typeof current.model !== 'string' || current.model.length === 0) return undefined
+      return { provider: current.provider, model: current.model }
+    } catch {
+      return undefined
+    }
+  }
+
   private async mutate(operation: MessageEditOperation): Promise<boolean> {
     const current = this.store.getSnapshot()
     if (current.pending !== null || current.status !== 'ready') return false
@@ -442,13 +496,15 @@ export class MessageEditController {
       state.error = null
     })
     try {
+      const route = await this.composerRoute()
+      const payload = route === undefined ? operation : { ...operation, route }
       const response = await fetch(MESSAGE_EDIT_PATH, {
         method: 'POST',
         headers: {
           accept: 'application/json',
           'content-type': 'application/json',
         },
-        body: JSON.stringify(operation),
+        body: JSON.stringify(payload),
       })
       const result = decodeOperationResult(await responseValue(response))
       if (this.disposed) return true

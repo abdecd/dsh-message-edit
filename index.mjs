@@ -343,8 +343,8 @@ function modelRoute(events, fallback) {
 		model
 	};
 }
-function agentOptions(events, fallback) {
-	const route = modelRoute(events, fallback);
+function agentOptions(events, fallback, preferred) {
+	const route = preferred ?? modelRoute(events, fallback);
 	const maxTokens = events.findLast((event) => event.type === "request/header")?.data.header.config?.maxTokens ?? fallback?.maxTokens;
 	return {
 		...route,
@@ -496,7 +496,7 @@ async function runOperation(ctx, operation) {
 		try {
 			const events = source.session.events;
 			const plan = planOperation(operation, events, source.options);
-			const options = agentOptions(events, source.options);
+			const options = agentOptions(events, source.options, operation.route);
 			const child = await createVersionAgent(ctx, source.session, childId, plan, options);
 			inverses.push(() => child.dispose());
 			const workspace = sourceWorkspace(ctx, sourceId);
@@ -700,9 +700,23 @@ function cascadeOf(value) {
 	if (value !== "truncate" && value !== "preserve") throw new TypeError("cascade 必须是 truncate 或 preserve。");
 	return value;
 }
+/** Optional composer-forwarded model selection; absence keeps the logged route. */
+function modelRouteOf(value) {
+	if (value === void 0) return void 0;
+	const record = objectValue(value);
+	const provider = record["provider"];
+	const model = record["model"];
+	if (typeof provider !== "string" || provider.length === 0) throw new TypeError("route.provider 必须是非空字符串。");
+	if (typeof model !== "string" || model.length === 0) throw new TypeError("route.model 必须是非空字符串。");
+	return {
+		provider,
+		model
+	};
+}
 function decodeOperation(value) {
 	const record = objectValue(value);
 	const sessionId = sessionIdOf(record["sessionId"]);
+	const route = modelRouteOf(record["route"]);
 	switch (record["action"]) {
 		case "edit":
 			if (typeof record["text"] !== "string") throw new TypeError("text 必须是字符串。");
@@ -712,17 +726,20 @@ function decodeOperation(value) {
 				eventSeq: integerOf(record["eventSeq"], "eventSeq"),
 				blockIndex: integerOf(record["blockIndex"], "blockIndex"),
 				text: record["text"],
-				cascade: cascadeOf(record["cascade"])
+				cascade: cascadeOf(record["cascade"]),
+				...route === void 0 ? {} : { route }
 			};
 		case "reroll": return {
 			action: "reroll",
-			sessionId
+			sessionId,
+			...route === void 0 ? {} : { route }
 		};
 		case "retry": return {
 			action: "retry",
 			sessionId,
 			turn: integerOf(record["turn"], "turn"),
-			cascade: cascadeOf(record["cascade"])
+			cascade: cascadeOf(record["cascade"]),
+			...route === void 0 ? {} : { route }
 		};
 		case "fork": {
 			const rowsValue = record["rows"];
@@ -738,7 +755,8 @@ function decodeOperation(value) {
 						kind,
 						text: item["text"]
 					};
-				})
+				}),
+				...route === void 0 ? {} : { route }
 			};
 		}
 		default: throw new TypeError("action 必须是 edit、reroll、retry 或 fork。");

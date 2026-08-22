@@ -110,6 +110,14 @@ export interface MessageEditTimeline {
   redoSessionIds: string[]
 }
 
+/** Model selection forwarded from the browser composer so one re-execution
+ * runs the model the chat input currently targets instead of the last model
+ * recorded in the source history. Absent keeps the history-derived route. */
+export interface ModelRoute {
+  provider: string
+  model: string
+}
+
 /** Edit one text/reasoning block and regenerate from its turn boundary. */
 export interface EditOperation {
   action: 'edit'
@@ -118,12 +126,14 @@ export interface EditOperation {
   blockIndex: number
   text: string
   cascade: CascadePolicy
+  route?: ModelRoute
 }
 
 /** Regenerate the latest completed assistant reply. */
 export interface RerollOperation {
   action: 'reroll'
   sessionId: string
+  route?: ModelRoute
 }
 
 /** Regenerate any selected historical turn. */
@@ -132,6 +142,7 @@ export interface RetryOperation {
   sessionId: string
   turn: number
   cascade: CascadePolicy
+  route?: ModelRoute
 }
 
 /** One ordered text row of the composed history sent by a Fork. */
@@ -147,6 +158,7 @@ export interface ForkOperation {
   action: 'fork'
   sessionId: string
   rows: ForkMessageRow[]
+  route?: ModelRoute
 }
 
 /** Mutation accepted by the host route. */
