@@ -544,3 +544,73 @@
     width: 100%;
   }
 }
+
+.changeSummary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.changeChip {
+  color: var(--dsw-alias-state-warn-label);
+  font-size: 11px;
+  line-height: 17px;
+}
+
+.newBadge,
+.editedBadge {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 9px;
+  font-size: 10px;
+  line-height: 17px;
+}
+
+.newBadge {
+  color: var(--dsw-alias-brand-primary);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.editedBadge {
+  color: var(--dsw-alias-state-warn-label);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.messageSpacer {
+  flex: 1;
+}
+
+.textButton[data-danger] {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.turnActions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.turnActions .secondaryButton {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 11px;
+}
+
+.composerFooter {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--dsw-alias-border-l2);
+}
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.messageCard[data-added] {
+  border: 1px dashed var(--dsw-alias-brand-primary);
+}

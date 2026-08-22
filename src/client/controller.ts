@@ -15,6 +15,7 @@ import {
   type CascadePolicy,
   type EditableBlockKind,
   type EditableMessageBlock,
+  type ForkMessageRow,
   type MessageEditOperation,
   type MessageEditOperationResult,
   type MessageEditTimeline,
@@ -42,6 +43,9 @@ export interface MessageEditFace {
   edit(message: EditableMessageBlock, text: string, cascade: CascadePolicy): Promise<boolean>
   retry(turn: number, cascade: CascadePolicy): Promise<boolean>
   reroll(): Promise<boolean>
+  /** Rebuild the whole history from composed rows and branch from it.
+   * A trailing user row is queued so the new version generates a reply. */
+  fork(rows: ForkMessageRow[]): Promise<boolean>
   openVersion(sessionId: string): Promise<void>
 }
 
@@ -103,7 +107,7 @@ function decodeRetryable(value: unknown, index: number): RetryableTurn {
 
 function optionalOperation(value: unknown): VersionOperation | undefined {
   if (value === undefined) return undefined
-  if (value === 'edit' || value === 'reroll' || value === 'retry') return value
+  if (value === 'edit' || value === 'reroll' || value === 'retry' || value === 'fork') return value
   throw new TypeError('版本 operation 无效')
 }
 
@@ -136,6 +140,7 @@ function decodeVersion(value: unknown, index: number): VersionSummary {
     ...kind === undefined ? {} : { blockKind: kind },
     ...row['before'] === undefined ? {} : { before: stringValue(row['before'], '版本 before') },
     ...row['after'] === undefined ? {} : { after: stringValue(row['after'], '版本 after') },
+    ...row['rowCount'] === undefined ? {} : { rowCount: numberValue(row['rowCount'], '版本 rowCount') },
   }
 }
 
@@ -266,6 +271,11 @@ export class MessageEditController {
         cascade,
       }),
       reroll: () => this.mutate({ action: 'reroll', sessionId: this.sessionId }),
+      fork: rows => this.mutate({
+        action: 'fork',
+        sessionId: this.sessionId,
+        rows: rows.map(row => ({ kind: row.kind, text: row.text })),
+      }),
       openVersion: sessionId => this.openWhenListed(sessionId as SessionId),
     }
     this.observe()

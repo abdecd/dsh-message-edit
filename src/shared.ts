@@ -8,7 +8,7 @@ export const MESSAGE_EDIT_VIEW_ORDER = 15
 export type CascadePolicy = 'truncate' | 'preserve'
 
 /** User-visible operation represented by one child version. */
-export type VersionOperation = 'edit' | 'reroll' | 'retry'
+export type VersionOperation = 'edit' | 'reroll' | 'retry' | 'fork'
 
 /** Editable model-surface block classification. */
 export type EditableBlockKind = 'user' | 'assistant.reasoning' | 'assistant.response'
@@ -27,6 +27,8 @@ export interface MessageEditEffect {
   blockKind?: EditableBlockKind
   before?: string
   after?: string
+  /** Row count of the composed history for `fork` effects. */
+  rowCount?: number
 }
 
 /** Inverse half generated together with a version effect. */
@@ -93,6 +95,7 @@ export interface VersionSummary {
   blockKind?: EditableBlockKind
   before?: string
   after?: string
+  rowCount?: number
 }
 
 /** Complete value-level projection consumed by both Timeline and header controls. */
@@ -131,8 +134,23 @@ export interface RetryOperation {
   cascade: CascadePolicy
 }
 
+/** One ordered text row of the composed history sent by a Fork. */
+export interface ForkMessageRow {
+  kind: EditableBlockKind
+  text: string
+}
+
+/** Rebuild the whole message history from composed rows and branch from it.
+ * A trailing user row is excluded from the seed and queued so the new
+ * version generates a fresh reply to it. */
+export interface ForkOperation {
+  action: 'fork'
+  sessionId: string
+  rows: ForkMessageRow[]
+}
+
 /** Mutation accepted by the host route. */
-export type MessageEditOperation = EditOperation | RerollOperation | RetryOperation
+export type MessageEditOperation = EditOperation | RerollOperation | RetryOperation | ForkOperation
 
 /** Host acknowledgement after the child Agent has been published and queued. */
 export interface MessageEditOperationResult {

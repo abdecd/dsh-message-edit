@@ -2,14 +2,16 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent, AgentHandle, AgentOptions, AgentSetup } from '@deepseek-ai/dsh-agent'
 import type { PresetBearingSession } from '@deepseek-ai/dsh-agent-presets'
-import type {
-  SessionId,
-  Session,
-  SessionEvent,
-  SessionEventType,
-  SurfaceEventType,
-  SurfaceIntent,
+import {
+  KNOWN_SESSION_EVENT_TYPES,
+  type SessionId,
+  type Session,
+  type SessionEvent,
+  type SessionEventType,
+  type SurfaceEventType,
+  type SurfaceIntent,
 } from '@deepseek-ai/dsh-session'
+;(KNOWN_SESSION_EVENT_TYPES as Set<string>).add('message-edit/version')
 import type {
   SessionLineageNode,
   SessionRecord,
@@ -27,6 +29,8 @@ import {
   type EditOperation,
   type EditableBlockKind,
   type EditableMessageBlock,
+  type ForkMessageRow,
+  type ForkOperation,
   type LegacyMessageEditVersionEvent,
   type MessageEditEffect,
   type MessageEditOperation,
@@ -48,6 +52,8 @@ export type {
   EditOperation,
   EditableBlockKind,
   EditableMessageBlock,
+  ForkMessageRow,
+  ForkOperation,
   MessageEditOperation,
   MessageEditOperationResult,
   MessageEditTimeline,
@@ -121,14 +127,28 @@ interface ClosedTurn {
 
 interface ManualAssistantTurn {
   turn: number
-  user: UserMessage
-  assistant: AssistantMessage
+  /** Absent for a userless closed turn (a composed turn without a user row). */
+  user?: UserMessage
+  /** Absent for a user-only closed turn (a composed turn whose reply was deleted). */
+  assistant?: AssistantMessage
+}
+
+/** One textual block of a composed assistant message, kept in original order. */
+interface ComposedBlock {
+  type: 'reasoning' | 'text'
+  text: string
+}
+
+/** One composed history turn: an optional user row plus an ordered block list. */
+interface ComposedTurn {
+  user?: string
+  blocks: ComposedBlock[]
 }
 
 interface OperationPlan {
   boundary: number
   version: MessageEditVersionEvent
-  manualTurn?: ManualAssistantTurn
+  manualTurns: ManualAssistantTurn[]
   queuedUsers: UserMessage[]
 }
 
@@ -167,6 +187,16 @@ function cloneUser(message: UserMessage, content: ContentBlock[] = structuredClo
     id: crypto.randomUUID(),
     role: 'user' as const,
     content: Object.freeze(content),
+    source: Object.freeze({ kind: 'user' as const }),
+  }) as UserMessage
+}
+
+/** Build a fresh user message from composed text. */
+function newUserMessage(text: string): UserMessage {
+  return Object.freeze({
+    id: crypto.randomUUID(),
+    role: 'user' as const,
+    content: Object.freeze([{ type: 'text', text }] as ContentBlock[]),
     source: Object.freeze({ kind: 'user' as const }),
   }) as UserMessage
 }
@@ -302,6 +332,7 @@ function editPlan(operation: EditOperation, turns: readonly ClosedTurn[]): Opera
         before: before.text,
         after: operation.text,
       }),
+      manualTurns: [],
       queuedUsers: [edited, ...later],
     }
   }
@@ -324,11 +355,11 @@ function editPlan(operation: EditOperation, turns: readonly ClosedTurn[]): Opera
       before: before.text,
       after: operation.text,
     }),
-    manualTurn: {
+    manualTurns: [{
       turn: turn.turn,
       user: cloneUser(turn.user.data),
       assistant: assistantReplacement(event, operation.blockIndex, operation.text),
-    },
+    }],
     queuedUsers: operation.cascade === 'preserve'
       ? downstreamUsers(turns, turnIndex + 1)
       : [],
@@ -352,6 +383,7 @@ function retryPlan(
       targetTurn: turn.turn,
       targetEventSeq: turn.user.seq,
     }),
+    manualTurns: [],
     queuedUsers: cascade === 'preserve'
       ? downstreamUsers(turns, turnIndex)
       : [cloneUser(turn.user.data)],
@@ -372,13 +404,110 @@ function rerollPlan(sessionId: string, turns: readonly ClosedTurn[]): OperationP
         targetTurn: turn.turn,
         targetEventSeq: target.seq,
       }),
+      manualTurns: [],
       queuedUsers: [cloneUser(turn.user.data)],
     }
   }
   throw new Error('当前会话没有可重生成的已落定助手回复。')
 }
 
-function planOperation(operation: MessageEditOperation, events: readonly SessionEvent[]): OperationPlan {
+/** Fold composed rows into turns; a user row always opens a new turn.
+ * A leading assistant row opens a userless turn (a turn without user input).
+ * Assistant rows keep their original order, so multi-step turns with several
+ * reasoning/text blocks compose back into one ordered assistant message. */
+function groupForkRows(rows: readonly ForkMessageRow[]): ComposedTurn[] {
+  const turns: ComposedTurn[] = []
+  let current: ComposedTurn | undefined
+  for (const row of rows) {
+    if (row.kind === 'user') {
+      if (row.text.length === 0) throw new Error('用户消息文本不能为空。')
+      current = { blocks: [] }
+      current.user = row.text
+      turns.push(current)
+      continue
+    }
+    if (current === undefined) {
+      current = { blocks: [] }
+      turns.push(current)
+    }
+    current.blocks.push(row.kind === 'assistant.reasoning'
+      ? { type: 'reasoning', text: row.text }
+      : { type: 'text', text: row.text })
+  }
+  return turns
+}
+
+/** Build the assistant message of one composed turn; empty blocks are dropped. */
+function composedAssistantMessage(
+  turn: ComposedTurn,
+  route: { provider: string; model: string } | undefined,
+): AssistantMessage | undefined {
+  const content: ContentBlock[] = turn.blocks
+    .filter(block => block.text.length > 0)
+    .map(block => ({ type: block.type, text: block.text }))
+  if (content.length === 0 || route === undefined) return undefined
+  return Object.freeze({
+    id: crypto.randomUUID(),
+    role: 'assistant' as const,
+    content: Object.freeze(content),
+    source: Object.freeze({
+      kind: 'model' as const,
+      provider: route.provider,
+      model: route.model,
+    }),
+  }) as AssistantMessage
+}
+
+/** Rebuild the whole history from composed rows and branch from it.
+ * The composed rows replace the source history entirely (boundary -1); a
+ * trailing user row is queued so the new version generates a fresh reply. */
+function forkPlan(
+  operation: ForkOperation,
+  events: readonly SessionEvent[],
+  fallback?: AgentOptions,
+): OperationPlan {
+  const rows = operation.rows
+  let queuedUsers: UserMessage[] = []
+  let seedRows = rows
+  const last = rows[rows.length - 1]
+  if (last !== undefined && last.kind === 'user') {
+    queuedUsers = [newUserMessage(last.text)]
+    seedRows = rows.slice(0, -1)
+  }
+  const turns = groupForkRows(seedRows)
+  const needsRoute = turns.some(
+    turn => turn.blocks.some(block => block.text.length > 0),
+  )
+  const route = needsRoute ? modelRoute(events, fallback) : undefined
+  const manualTurns: ManualAssistantTurn[] = []
+  for (const turn of turns) {
+    const assistant = composedAssistantMessage(turn, route)
+    if (turn.user === undefined && assistant === undefined) continue
+    manualTurns.push({
+      turn: manualTurns.length + 1,
+      ...turn.user === undefined ? {} : { user: newUserMessage(turn.user) },
+      ...assistant === undefined ? {} : { assistant },
+    })
+  }
+  return {
+    boundary: -1,
+    version: pairVersionEffect(operation.sessionId, {
+      operation: 'fork',
+      cascade: 'truncate',
+      targetTurn: 0,
+      targetEventSeq: 0,
+      rowCount: rows.length,
+    }),
+    manualTurns,
+    queuedUsers,
+  }
+}
+
+function planOperation(
+  operation: MessageEditOperation,
+  events: readonly SessionEvent[],
+  fallback?: AgentOptions,
+): OperationPlan {
   const turns = closedTurns(events)
   switch (operation.action) {
     case 'edit':
@@ -387,20 +516,30 @@ function planOperation(operation: MessageEditOperation, events: readonly Session
       return rerollPlan(operation.sessionId, turns)
     case 'retry':
       return retryPlan(operation.sessionId, operation.turn, operation.cascade, turns)
+    case 'fork':
+      return forkPlan(operation, events, fallback)
   }
 }
 
-function agentOptions(events: readonly SessionEvent[], fallback?: AgentOptions): AgentOptions {
+function modelRoute(
+  events: readonly SessionEvent[],
+  fallback?: AgentOptions,
+): { provider: string; model: string } {
   const config = events.findLast(event => event.type === 'request/header')?.data.header.config
   const provider = config?.provider ?? fallback?.provider
   const model = config?.model ?? fallback?.model
   if (provider === undefined || provider.length === 0 || model === undefined || model.length === 0) {
     throw new Error('无法从会话历史解析模型路由。')
   }
-  const maxTokens = config?.maxTokens ?? fallback?.maxTokens
+  return { provider, model }
+}
+
+function agentOptions(events: readonly SessionEvent[], fallback?: AgentOptions): AgentOptions {
+  const route = modelRoute(events, fallback)
+  const maxTokens = events.findLast(event => event.type === 'request/header')?.data.header.config?.maxTokens
+    ?? fallback?.maxTokens
   return {
-    provider,
-    model,
+    ...route,
     ...maxTokens === undefined ? {} : { maxTokens },
   }
 }
@@ -441,8 +580,18 @@ function appendLogSeedEvent<T extends Exclude<SessionEventType, SurfaceEventType
   events: SessionEvent[],
   type: T,
   data: SessionEvent<T>['data'],
+  ignorable = false,
 ): void {
-  events.push({ type, seq: events.length, time: Date.now(), data } as SessionEvent<T>)
+  events.push({
+    type,
+    seq: events.length,
+    time: Date.now(),
+    data,
+    /* Plugin-owned types are outside the core KNOWN_SESSION_EVENT_TYPES catalog; the
+       envelope marker lets harness builds that do not know the type skip the record
+       instead of refusing the whole log (SessionEvent.ignorable contract). */
+    ...(ignorable ? { ignorable: true } : {}),
+  } as SessionEvent<T>)
 }
 
 function appendSurfaceSeedEvent<T extends SurfaceEventType>(
@@ -464,7 +613,11 @@ function appendSurfaceSeedEvent<T extends SurfaceEventType>(
 function appendManualTurn(events: SessionEvent[], manual: ManualAssistantTurn): void {
   const { turn, user, assistant } = manual
   appendLogSeedEvent(events, 'turn/start', { turn })
-  appendSurfaceSeedEvent(events, 'user/message', user, { surfaceOp: 'append' })
+  if (user !== undefined) appendSurfaceSeedEvent(events, 'user/message', user, { surfaceOp: 'append' })
+  if (assistant === undefined) {
+    appendLogSeedEvent(events, 'turn/end', { turn, reason: { kind: 'completed' } })
+    return
+  }
   appendLogSeedEvent(events, 'step/start', { turn, step: 1 })
   appendSurfaceSeedEvent(events, 'assistant/message', { turn, step: 1, message: assistant }, {
     surfaceOp: 'append',
@@ -480,8 +633,10 @@ function versionSeed(source: Session, plan: OperationPlan): {
 } {
   const events = inheritedSeed(source, plan.boundary)
   const inheritedLength = events.length
-  appendLogSeedEvent(events, 'message-edit/version', plan.version)
-  if (plan.manualTurn !== undefined) appendManualTurn(events, plan.manualTurn)
+  /* Marked ignorable: harness builds without this plugin must be able to skip the
+     provenance record instead of refusing the whole log (SessionEvent.ignorable). */
+  appendLogSeedEvent(events, 'message-edit/version', plan.version, true)
+  for (const manual of plan.manualTurns) appendManualTurn(events, manual)
   return { events, inheritedLength }
 }
 
@@ -556,7 +711,7 @@ async function runOperation(ctx: Context, operation: MessageEditOperation): Prom
     const inverses: OperationInverse[] = []
     try {
       const events = source.session.events
-      const plan = planOperation(operation, events)
+      const plan = planOperation(operation, events, source.options)
       const options = agentOptions(events, source.options)
       const child = await createVersionAgent(ctx, source.session, childId, plan, options)
       inverses.push(() => child.dispose())
@@ -738,6 +893,7 @@ async function timeline(ctx: Context, sessionId: SessionId): Promise<MessageEdit
         ...version.effect.blockKind === undefined ? {} : { blockKind: version.effect.blockKind },
         ...version.effect.before === undefined ? {} : { before: version.effect.before },
         ...version.effect.after === undefined ? {} : { after: version.effect.after },
+        ...version.effect.rowCount === undefined ? {} : { rowCount: version.effect.rowCount },
       },
     }
   })
@@ -795,6 +951,11 @@ function integerOf(value: unknown, name: string): number {
   return value as number
 }
 
+function blockKindOf(value: unknown, label: string): EditableBlockKind {
+  if (value === 'user' || value === 'assistant.reasoning' || value === 'assistant.response') return value
+  throw new TypeError(`${label} 必须是 user、assistant.reasoning 或 assistant.response。`)
+}
+
 function cascadeOf(value: unknown): CascadePolicy {
   if (value !== 'truncate' && value !== 'preserve') throw new TypeError('cascade 必须是 truncate 或 preserve。')
   return value
@@ -823,8 +984,19 @@ function decodeOperation(value: unknown): MessageEditOperation {
         turn: integerOf(record['turn'], 'turn'),
         cascade: cascadeOf(record['cascade']),
       }
+    case 'fork': {
+      const rowsValue = record['rows']
+      if (!Array.isArray(rowsValue)) throw new TypeError('rows 必须是数组。')
+      const rows = rowsValue.map((row, index) => {
+        const item = objectValue(row)
+        const kind = blockKindOf(item['kind'], `rows[${index}].kind`)
+        if (typeof item['text'] !== 'string') throw new TypeError(`rows[${index}].text 必须是字符串。`)
+        return { kind, text: item['text'] }
+      })
+      return { action: 'fork', sessionId, rows }
+    }
     default:
-      throw new TypeError('action 必须是 edit、reroll 或 retry。')
+      throw new TypeError('action 必须是 edit、reroll、retry 或 fork。')
   }
 }
 

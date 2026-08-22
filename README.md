@@ -4,7 +4,7 @@
 [![npm downloads](https://img.shields.io/npm/dm/dsh-message-edit)](https://www.npmjs.com/package/dsh-message-edit)
 [![license](https://img.shields.io/npm/l/dsh-message-edit)](LICENSE)
 
-`dsh-message-edit`（[npm](https://www.npmjs.com/package/dsh-message-edit) · [GitHub](https://github.com/Moeblack/dsh-message-edit)）为 DeepSeek Harness 补充基于事件溯源的「消息编辑与重生成」能力。插件不改写历史事件，也不修改 DSH 引擎内部；每次编辑、重生成或重试都会从目标回合之前创建一个新会话版本，原会话始终保留并可随时切回。
+`dsh-message-edit`（[npm](https://www.npmjs.com/package/dsh-message-edit) · [GitHub](https://github.com/Moeblack/dsh-message-edit)）为 DeepSeek Harness 补充基于事件溯源的「消息编辑与重生成」能力。插件不改写历史事件，也不修改 DSH 引擎内部；每次编辑、重生成、重试或 Fork 都会创建一个新的会话版本，原会话始终保留并可随时切回。
 
 ```bash
 dsh plugin --profile web add dsh-message-edit
@@ -15,6 +15,7 @@ dsh plugin --profile web add dsh-message-edit
 - **编辑消息**：可编辑已落定的用户文本、`assistant.reasoning` 思考块与 `assistant.response` 回复文本。
 - **重生成**：从最后一条已落定助手回复所属回合之前分支，使用原用户输入重新生成。
 - **重试任意回合**：在 Timeline 中选择任意历史回合重新执行。
+- **自由 CRUD + Fork**：在 Timeline 右列对已落定消息随意增、删、改，草稿实时显示「新增 · 编辑 · 删除」计数并可一键重置；点击 **Fork** 按草稿内容重建消息历史并生成新版本。以用户消息结尾时，该消息作为新提示排入新会话并生成新的助手回复；以助手消息结尾或历史为空时只创建分支、不生成回复。
 - **级联策略**：
   - `truncate`（默认）：只重新执行目标输入，删除该点之后的旧后续。
   - `preserve`：保留后续用户输入，并在新分支中依次重新执行；助手输出与工具链全部重新生成。
@@ -29,8 +30,9 @@ dsh plugin --profile web add dsh-message-edit
 
 1. 用户消息编辑、Reroll 与 Retry：回退整个目标回合，再把目标用户输入作为新回合交给 Agent。
 2. 助手块编辑：回退整个目标回合，以原用户输入和编辑后的助手内容构造一个新的完整闭合回合；原工具链不进入新版本。选择 `preserve` 时，后续用户输入再依次交给 Agent，产生新的完整工具链。
-3. 每个版本都追加一个不可拆分的 `message-edit/version` 效果对：`effect` 记录正向效果，`inverse` 记录恢复目标。父版本链自动导出组合逆；恢复不是删除事件，而是沿逆链切换到仍然存在的版本。
-4. 消息历史变换彼此不交换，因此撤销遵循 LIFO：一次只撤销当前原子效果并保留更早效果；各后继分支始终保留，可从父版本重新施加。
+3. Fork：不继承任何前缀（`boundary: -1`），草稿中的消息行就是新历史本身，回合从 1 重新编号；用户行开启回合，助手思考/回复行挂到当前回合。若草稿以用户消息结尾，该消息不进 seed 而是经 `child.agent.followup()` 排入以触发新回复；以助手消息结尾或历史为空时只创建分支、不生成回复。
+4. 每个版本都追加一个不可拆分的 `message-edit/version` 效果对：`effect` 记录正向效果，`inverse` 记录恢复目标。父版本链自动导出组合逆；恢复不是删除事件，而是沿逆链切换到仍然存在的版本。
+5. 消息历史变换彼此不交换，因此撤销遵循 LIFO：一次只撤销当前原子效果并保留更早效果；各后继分支始终保留，可从父版本重新施加。
 
 ### 分支与 Agent 接线
 
@@ -59,10 +61,11 @@ interface MessageEditVersionEvent {
   schemaVersion: 2
   effect: {
     id: string
-    operation: 'edit' | 'reroll' | 'retry'
+    operation: 'edit' | 'reroll' | 'retry' | 'fork'
     cascade: 'truncate' | 'preserve'
     targetTurn: number
     targetEventSeq: number
+    rowCount?: number
     targetBlockIndex?: number
     blockKind?: 'user' | 'assistant.reasoning' | 'assistant.response'
     before?: string
@@ -77,12 +80,15 @@ interface MessageEditVersionEvent {
 
 会话头的 `parentSession` 构成版本树，且必须与事件中的 `inverse.sessionId` 一致；`seedLength` 区分当前版本自己的元数据与从祖先继承的同名事件。Timeline 通过 `ctx.sessionQuery.traceSession()` 和 `readSession()` 生成完整值级投影，并由原子逆链导出 `undoStack` 与直接 `redoSessionIds`。旧版平面事件仍可读取，并在投影时规范化为同一效果对。
 
+所有 `message-edit/version` 事件信封都携带 `ignorable: true`（`SessionEvent.ignorable` 信封契约）：不认识该事件类型的 harness 构建会跳过这条溯源记录而不是拒绝整个日志。更早版本插件写入的存量日志可用一次性维护脚本修复：`node scripts/repair-session-logs.mjs`（默认 dry-run；`--apply` 写入并自动备份原件）。
+
 ## UI
 
 - `conversation.view`
   - `id: message-edit-timeline`
   - `order: 15`
   - `label: Timeline`
+  - 左栏为完整版本树（含 Fork 版本的消息计数）；右栏为可自由增删改的消息草稿，顶部实时显示「新增 · 编辑 · 删除」计数与一键重置，主按钮按草稿内容执行 Fork（结尾为用户消息时生成新回复）
 - `conversation.session.header.actions`
   - `id: message-edit-controls`
   - 直接父效果撤销、直接子效果重施加、效果链计数、最后回复重生成
@@ -119,7 +125,7 @@ dsh plugin --profile web add -w link:/path/to/dsh-message-edit
 ## HTTP 接口
 
 - `GET /message-edit?sessionId=<id>`：读取可编辑消息、可重试回合与完整版本树。
-- `POST /message-edit`：执行 `edit`、`reroll` 或 `retry`，返回已发布的新 Session ID。
+- `POST /message-edit`：执行 `edit`、`reroll`、`retry` 或 `fork`，返回已发布的新 Session ID。`fork` 的 `rows` 为有序的消息行（`kind` 为 `user` / `assistant.reasoning` / `assistant.response`，`text` 为文本），按行重建整个历史；以 `user` 行结尾时触发新回复。
 
 ## 范围边界
 

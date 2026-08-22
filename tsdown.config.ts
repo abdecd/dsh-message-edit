@@ -13,6 +13,9 @@ export default () => [
     fixedExtension: false,
     dts: false,
     clean: false,
+    deps: {
+      neverBundle: [/^@deepseek-ai\//],
+    },
   },
   clientConfig,
 ]

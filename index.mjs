@@ -1,3 +1,4 @@
+import { KNOWN_SESSION_EVENT_TYPES } from "@deepseek-ai/dsh-session";
 //#region src/shared.ts
 /** Same-origin endpoint owned by the Message Edit host plugin. */
 const MESSAGE_EDIT_PATH = "/message-edit";
@@ -7,6 +8,7 @@ const MESSAGE_EDIT_VIEW_ORDER = 15;
 const MESSAGE_EDIT_VERSION_SCHEMA = 2;
 //#endregion
 //#region src/index.ts
+KNOWN_SESSION_EVENT_TYPES.add("message-edit/version");
 /** Stable Cordis plugin name. */
 const name = "message-edit";
 /** Public services used by the branch transaction and timeline projection. */
@@ -42,6 +44,18 @@ function cloneUser(message, content = structuredClone(message.content)) {
 		id: crypto.randomUUID(),
 		role: "user",
 		content: Object.freeze(content),
+		source: Object.freeze({ kind: "user" })
+	});
+}
+/** Build a fresh user message from composed text. */
+function newUserMessage(text) {
+	return Object.freeze({
+		id: crypto.randomUUID(),
+		role: "user",
+		content: Object.freeze([{
+			type: "text",
+			text
+		}]),
 		source: Object.freeze({ kind: "user" })
 	});
 }
@@ -162,6 +176,7 @@ function editPlan(operation, turns) {
 				before: before.text,
 				after: operation.text
 			}),
+			manualTurns: [],
 			queuedUsers: [edited, ...later]
 		};
 	}
@@ -181,11 +196,11 @@ function editPlan(operation, turns) {
 			before: before.text,
 			after: operation.text
 		}),
-		manualTurn: {
+		manualTurns: [{
 			turn: turn.turn,
 			user: cloneUser(turn.user.data),
 			assistant: assistantReplacement(event, operation.blockIndex, operation.text)
-		},
+		}],
 		queuedUsers: operation.cascade === "preserve" ? downstreamUsers(turns, turnIndex + 1) : []
 	};
 }
@@ -201,6 +216,7 @@ function retryPlan(sessionId, turnNumber, cascade, turns) {
 			targetTurn: turn.turn,
 			targetEventSeq: turn.user.seq
 		}),
+		manualTurns: [],
 		queuedUsers: cascade === "preserve" ? downstreamUsers(turns, turnIndex) : [cloneUser(turn.user.data)]
 	};
 }
@@ -218,28 +234,120 @@ function rerollPlan(sessionId, turns) {
 				targetTurn: turn.turn,
 				targetEventSeq: target.seq
 			}),
+			manualTurns: [],
 			queuedUsers: [cloneUser(turn.user.data)]
 		};
 	}
 	throw new Error("当前会话没有可重生成的已落定助手回复。");
 }
-function planOperation(operation, events) {
+/** Fold composed rows into turns; a user row always opens a new turn.
+* A leading assistant row opens a userless turn (a turn without user input).
+* Assistant rows keep their original order, so multi-step turns with several
+* reasoning/text blocks compose back into one ordered assistant message. */
+function groupForkRows(rows) {
+	const turns = [];
+	let current;
+	for (const row of rows) {
+		if (row.kind === "user") {
+			if (row.text.length === 0) throw new Error("用户消息文本不能为空。");
+			current = { blocks: [] };
+			current.user = row.text;
+			turns.push(current);
+			continue;
+		}
+		if (current === void 0) {
+			current = { blocks: [] };
+			turns.push(current);
+		}
+		current.blocks.push(row.kind === "assistant.reasoning" ? {
+			type: "reasoning",
+			text: row.text
+		} : {
+			type: "text",
+			text: row.text
+		});
+	}
+	return turns;
+}
+/** Build the assistant message of one composed turn; empty blocks are dropped. */
+function composedAssistantMessage(turn, route) {
+	const content = turn.blocks.filter((block) => block.text.length > 0).map((block) => ({
+		type: block.type,
+		text: block.text
+	}));
+	if (content.length === 0 || route === void 0) return void 0;
+	return Object.freeze({
+		id: crypto.randomUUID(),
+		role: "assistant",
+		content: Object.freeze(content),
+		source: Object.freeze({
+			kind: "model",
+			provider: route.provider,
+			model: route.model
+		})
+	});
+}
+/** Rebuild the whole history from composed rows and branch from it.
+* The composed rows replace the source history entirely (boundary -1); a
+* trailing user row is queued so the new version generates a fresh reply. */
+function forkPlan(operation, events, fallback) {
+	const rows = operation.rows;
+	let queuedUsers = [];
+	let seedRows = rows;
+	const last = rows[rows.length - 1];
+	if (last !== void 0 && last.kind === "user") {
+		queuedUsers = [newUserMessage(last.text)];
+		seedRows = rows.slice(0, -1);
+	}
+	const turns = groupForkRows(seedRows);
+	const route = turns.some((turn) => turn.blocks.some((block) => block.text.length > 0)) ? modelRoute(events, fallback) : void 0;
+	const manualTurns = [];
+	for (const turn of turns) {
+		const assistant = composedAssistantMessage(turn, route);
+		if (turn.user === void 0 && assistant === void 0) continue;
+		manualTurns.push({
+			turn: manualTurns.length + 1,
+			...turn.user === void 0 ? {} : { user: newUserMessage(turn.user) },
+			...assistant === void 0 ? {} : { assistant }
+		});
+	}
+	return {
+		boundary: -1,
+		version: pairVersionEffect(operation.sessionId, {
+			operation: "fork",
+			cascade: "truncate",
+			targetTurn: 0,
+			targetEventSeq: 0,
+			rowCount: rows.length
+		}),
+		manualTurns,
+		queuedUsers
+	};
+}
+function planOperation(operation, events, fallback) {
 	const turns = closedTurns(events);
 	switch (operation.action) {
 		case "edit": return editPlan(operation, turns);
 		case "reroll": return rerollPlan(operation.sessionId, turns);
 		case "retry": return retryPlan(operation.sessionId, operation.turn, operation.cascade, turns);
+		case "fork": return forkPlan(operation, events, fallback);
 	}
 }
-function agentOptions(events, fallback) {
+function modelRoute(events, fallback) {
 	const config = events.findLast((event) => event.type === "request/header")?.data.header.config;
 	const provider = config?.provider ?? fallback?.provider;
 	const model = config?.model ?? fallback?.model;
 	if (provider === void 0 || provider.length === 0 || model === void 0 || model.length === 0) throw new Error("无法从会话历史解析模型路由。");
-	const maxTokens = config?.maxTokens ?? fallback?.maxTokens;
 	return {
 		provider,
-		model,
+		model
+	};
+}
+function agentOptions(events, fallback) {
+	const route = modelRoute(events, fallback);
+	const maxTokens = events.findLast((event) => event.type === "request/header")?.data.header.config?.maxTokens ?? fallback?.maxTokens;
+	return {
+		...route,
 		...maxTokens === void 0 ? {} : { maxTokens }
 	};
 }
@@ -267,12 +375,13 @@ function inheritedSeed(source, boundary) {
 	return source.events.slice(0, boundary + 1);
 }
 /** Build seed envelopes locally; Session construction performs canonical validation and freezing. */
-function appendLogSeedEvent(events, type, data) {
+function appendLogSeedEvent(events, type, data, ignorable = false) {
 	events.push({
 		type,
 		seq: events.length,
 		time: Date.now(),
-		data
+		data,
+		...ignorable ? { ignorable: true } : {}
 	});
 }
 function appendSurfaceSeedEvent(events, type, data, intent) {
@@ -288,7 +397,14 @@ function appendSurfaceSeedEvent(events, type, data, intent) {
 function appendManualTurn(events, manual) {
 	const { turn, user, assistant } = manual;
 	appendLogSeedEvent(events, "turn/start", { turn });
-	appendSurfaceSeedEvent(events, "user/message", user, { surfaceOp: "append" });
+	if (user !== void 0) appendSurfaceSeedEvent(events, "user/message", user, { surfaceOp: "append" });
+	if (assistant === void 0) {
+		appendLogSeedEvent(events, "turn/end", {
+			turn,
+			reason: { kind: "completed" }
+		});
+		return;
+	}
 	appendLogSeedEvent(events, "step/start", {
 		turn,
 		step: 1
@@ -313,8 +429,8 @@ function appendManualTurn(events, manual) {
 function versionSeed(source, plan) {
 	const events = inheritedSeed(source, plan.boundary);
 	const inheritedLength = events.length;
-	appendLogSeedEvent(events, "message-edit/version", plan.version);
-	if (plan.manualTurn !== void 0) appendManualTurn(events, plan.manualTurn);
+	appendLogSeedEvent(events, "message-edit/version", plan.version, true);
+	for (const manual of plan.manualTurns) appendManualTurn(events, manual);
 	return {
 		events,
 		inheritedLength
@@ -379,7 +495,7 @@ async function runOperation(ctx, operation) {
 		const inverses = [];
 		try {
 			const events = source.session.events;
-			const plan = planOperation(operation, events);
+			const plan = planOperation(operation, events, source.options);
 			const options = agentOptions(events, source.options);
 			const child = await createVersionAgent(ctx, source.session, childId, plan, options);
 			inverses.push(() => child.dispose());
@@ -529,7 +645,8 @@ async function timeline(ctx, sessionId) {
 				targetTurn: version.effect.targetTurn,
 				...version.effect.blockKind === void 0 ? {} : { blockKind: version.effect.blockKind },
 				...version.effect.before === void 0 ? {} : { before: version.effect.before },
-				...version.effect.after === void 0 ? {} : { after: version.effect.after }
+				...version.effect.after === void 0 ? {} : { after: version.effect.after },
+				...version.effect.rowCount === void 0 ? {} : { rowCount: version.effect.rowCount }
 			}
 		};
 	});
@@ -575,6 +692,10 @@ function integerOf(value, name) {
 	if (!Number.isSafeInteger(value) || value < 0) throw new TypeError(`${name} 必须是非负安全整数。`);
 	return value;
 }
+function blockKindOf(value, label) {
+	if (value === "user" || value === "assistant.reasoning" || value === "assistant.response") return value;
+	throw new TypeError(`${label} 必须是 user、assistant.reasoning 或 assistant.response。`);
+}
 function cascadeOf(value) {
 	if (value !== "truncate" && value !== "preserve") throw new TypeError("cascade 必须是 truncate 或 preserve。");
 	return value;
@@ -603,7 +724,24 @@ function decodeOperation(value) {
 			turn: integerOf(record["turn"], "turn"),
 			cascade: cascadeOf(record["cascade"])
 		};
-		default: throw new TypeError("action 必须是 edit、reroll 或 retry。");
+		case "fork": {
+			const rowsValue = record["rows"];
+			if (!Array.isArray(rowsValue)) throw new TypeError("rows 必须是数组。");
+			return {
+				action: "fork",
+				sessionId,
+				rows: rowsValue.map((row, index) => {
+					const item = objectValue(row);
+					const kind = blockKindOf(item["kind"], `rows[${index}].kind`);
+					if (typeof item["text"] !== "string") throw new TypeError(`rows[${index}].text 必须是字符串。`);
+					return {
+						kind,
+						text: item["text"]
+					};
+				})
+			};
+		}
+		default: throw new TypeError("action 必须是 edit、reroll、retry 或 fork。");
 	}
 }
 function requestJson(request) {
