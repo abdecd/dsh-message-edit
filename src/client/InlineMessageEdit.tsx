@@ -14,6 +14,10 @@ const BLOCK_TITLE: Record<EditableMessageBlock['kind'], string> = {
   user: '编辑用户消息',
   'assistant.reasoning': '编辑助手思考',
   'assistant.response': '编辑助手回复',
+  system: '编辑 System Prompt',
+  'tool.call': '编辑工具调用',
+  'tool.result': '编辑工具返回',
+  'context.inject': '编辑注入上下文',
 }
 
 const STYLE = {

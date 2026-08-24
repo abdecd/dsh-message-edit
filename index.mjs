@@ -76,17 +76,28 @@ function closedTurns(events) {
 			current = {
 				turn: event.data.turn,
 				startSeq: event.seq,
-				assistants: []
+				assistants: [],
+				events: []
 			};
 			continue;
 		}
 		if (current === void 0) continue;
-		if (event.type === "user/message" && current.user === void 0 && event.data.source.kind === "user") {
-			current.user = event;
+		if (event.type === "user/message") {
+			if (event.data.source.kind === "user" && current.user === void 0) current.user = event;
+			current.events.push(event);
 			continue;
 		}
 		if (event.type === "assistant/message" && event.data.turn === current.turn) {
 			current.assistants.push(event);
+			current.events.push(event);
+			continue;
+		}
+		if (event.type === "tool/result" && event.data.turn === current.turn) {
+			current.events.push(event);
+			continue;
+		}
+		if (event.type === "request/header") {
+			current.events.push(event);
 			continue;
 		}
 		if (event.type === "turn/end" && event.data.turn === current.turn) {
@@ -99,22 +110,42 @@ function closedTurns(events) {
 	}
 	return result;
 }
+function formatToolResultText(event) {
+	const msg = event.data.message;
+	const parts = [];
+	for (const block of msg.content) if (block.type === "tool-result" && Array.isArray(block.content)) {
+		for (const nested of block.content) if (nested.type === "text") parts.push(nested.text);
+	}
+	return parts.join("\n") || "";
+}
 function editableMessages(turns) {
 	const result = [];
-	for (const turn of turns) {
-		if (turn.user !== void 0) for (const [blockIndex, block] of turn.user.data.content.entries()) {
+	for (const turn of turns) for (const event of turn.events) if (event.type === "request/header") {
+		if (event.data.header?.system) result.push({
+			key: `${String(event.seq)}:sys`,
+			turn: turn.turn,
+			eventSeq: event.seq,
+			blockIndex: 0,
+			kind: "system",
+			text: event.data.header.system,
+			time: event.time
+		});
+	} else if (event.type === "user/message") {
+		const isDirectUser = event.data.source.kind === "user";
+		for (const [blockIndex, block] of event.data.content.entries()) {
 			if (block.type !== "text") continue;
 			result.push({
-				key: `${String(turn.user.seq)}:${String(blockIndex)}`,
+				key: `${String(event.seq)}:${String(blockIndex)}`,
 				turn: turn.turn,
-				eventSeq: turn.user.seq,
+				eventSeq: event.seq,
 				blockIndex,
-				kind: "user",
+				kind: isDirectUser ? "user" : "context.inject",
 				text: block.text,
-				time: turn.user.time
+				time: event.time
 			});
 		}
-		for (const event of turn.assistants) for (const [blockIndex, block] of event.data.message.content.entries()) if (isTextualBlock(block)) result.push({
+	} else if (event.type === "assistant/message") {
+		for (const [blockIndex, block] of event.data.message.content.entries()) if (isTextualBlock(block)) result.push({
 			key: `${String(event.seq)}:${String(blockIndex)}`,
 			turn: turn.turn,
 			eventSeq: event.seq,
@@ -123,19 +154,24 @@ function editableMessages(turns) {
 			text: block.text,
 			time: event.time
 		});
-		else if (block?.type === "tool-call") {
-			const args = block.arguments ? ` ${block.arguments}` : "";
-			result.push({
-				key: `${String(event.seq)}:${String(blockIndex)}`,
-				turn: turn.turn,
-				eventSeq: event.seq,
-				blockIndex,
-				kind: "assistant.response",
-				text: `[工具调用: ${block.name || "tool"}]${args}`,
-				time: event.time
-			});
-		}
-	}
+		else if (block?.type === "tool-call") result.push({
+			key: `${String(event.seq)}:${String(blockIndex)}`,
+			turn: turn.turn,
+			eventSeq: event.seq,
+			blockIndex,
+			kind: "tool.call",
+			text: block.arguments || "{}",
+			time: event.time
+		});
+	} else if (event.type === "tool/result") result.push({
+		key: `${String(event.seq)}:res`,
+		turn: turn.turn,
+		eventSeq: event.seq,
+		blockIndex: 0,
+		kind: "tool.result",
+		text: formatToolResultText(event),
+		time: event.time
+	});
 	return result;
 }
 function retryableTurns(turns) {
@@ -703,8 +739,8 @@ function integerOf(value, name) {
 	return value;
 }
 function blockKindOf(value, label) {
-	if (value === "user" || value === "assistant.reasoning" || value === "assistant.response") return value;
-	throw new TypeError(`${label} 必须是 user、assistant.reasoning 或 assistant.response。`);
+	if (value === "user" || value === "assistant.reasoning" || value === "assistant.response" || value === "system" || value === "tool.call" || value === "tool.result" || value === "context.inject") return value;
+	throw new TypeError(`${label} 消息块类型无效。`);
 }
 function cascadeOf(value) {
 	if (value !== "truncate" && value !== "preserve") throw new TypeError("cascade 必须是 truncate 或 preserve。");

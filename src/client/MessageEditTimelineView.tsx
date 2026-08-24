@@ -43,6 +43,10 @@ const BLOCK_LABEL: Record<EditableBlockKind, string> = {
   user: '用户消息',
   'assistant.reasoning': '助手思考',
   'assistant.response': '助手回复',
+  system: 'System Prompt',
+  'tool.call': '工具调用',
+  'tool.result': '工具返回',
+  'context.inject': '上下文/Skill 注入',
 }
 
 const OPERATION_LABEL: Record<VersionOperation, string> = {
@@ -74,8 +78,7 @@ function changeSummaryText(changes: { added: number; edited: number; deleted: nu
   return parts.join(' · ')
 }
 
-/** Group draft rows into sections: a user row starts a section and assistant
- * rows attach to the section started by the nearest previous user row. */
+/** Group draft rows into sections: each turn in history is an atomic section. */
 function buildSections(
   rows: readonly DraftRow[],
   baseline: ReadonlyMap<string, EditableMessageBlock>,
@@ -83,39 +86,38 @@ function buildSections(
 ): DraftSection[] {
   const retryable = new Map(retryableTurns.map(turn => [turn.turn, turn]))
   const sections: DraftSection[] = []
-  let addedCount = 0
+  const sectionMap = new Map<string, DraftSection>()
+
   for (const row of rows) {
-    if (row.kind !== 'user' && sections.length > 0) {
-      const last = sections[sections.length - 1]
-      if (last !== undefined) last.rows.push(row)
-      continue
+    const turnKey = row.turn === undefined ? `added-${row.key}` : `turn-${String(row.turn)}`
+    let section = sectionMap.get(turnKey)
+    if (section === undefined) {
+      section = {
+        id: turnKey,
+        turnLabel: row.turn === undefined ? '新增回合' : `回合 ${String(row.turn)}`,
+        preview: row.text,
+        rows: [],
+      }
+      sectionMap.set(turnKey, section)
+      sections.push(section)
     }
-    const isAddedUser = row.kind === 'user' && row.added
-    const section: DraftSection = {
-      id: isAddedUser
-        ? `added-${String(addedCount += 1)}`
-        : row.turn === undefined
-          ? `row-${row.key}`
-          : `turn-${String(row.turn)}`,
-      turnLabel: row.kind === 'user'
-        ? row.added ? '新增回合' : `回合 ${String(row.turn ?? '?')}`
-        : row.turn === undefined ? '无用户回合' : `回合 ${String(row.turn)}`,
-      preview: row.text,
-      rows: [row],
-    }
-    sections.push(section)
+    section.rows.push(row)
   }
+
   for (const section of sections) {
-    const head = section.rows[0]
-    if (head === undefined) continue
     const userRow = section.rows.find(row => row.kind === 'user')
-    section.preview = (userRow ?? head).text
-    const unchanged = section.rows.every(
-      row => !row.added && baseline.get(row.key)?.text === row.text,
-    )
-    if (head.kind === 'user' && !head.added && head.turn !== undefined && unchanged) {
-      const retry = retryable.get(head.turn)
-      if (retry !== undefined) section.retry = retry
+    const head = section.rows[0]
+    section.preview = (userRow ?? head)?.text || '（空内容）'
+    
+    // Check if eligible for retry
+    if (userRow && !userRow.added && userRow.turn !== undefined) {
+      const unchanged = section.rows.every(
+        row => !row.added && baseline.get(row.key)?.text === row.text,
+      )
+      if (unchanged) {
+        const retry = retryable.get(userRow.turn)
+        if (retry !== undefined) section.retry = retry
+      }
     }
   }
   return sections
@@ -213,14 +215,13 @@ function MessageCard({
   const active = editing?.key === row.key
   const edited = !row.added && baseline !== undefined && baseline.text !== row.text
 
-  // Check if text exceeds 1 line (either newline or tool-call with long JSON)
-  const isMultiLine = row.text.includes('\n') || (row.kind === 'assistant.response' && row.text.length > 70)
-  const defaultCollapsed = isMultiLine && (row.kind === 'user' || row.kind === 'assistant.response')
-  const [expanded, setExpanded] = useState<boolean>(!defaultCollapsed)
+  const badgeLabel = BLOCK_LABEL[row.kind] || row.kind
+  const kindDataAttr = row.kind.replace('.', '-')
 
-  const isToolCall = row.kind === 'assistant.response' && row.text.startsWith('[工具调用:')
-  const badgeLabel = isToolCall ? '工具调用' : BLOCK_LABEL[row.kind]
-  const kindDataAttr = isToolCall ? 'tool-call' : row.kind
+  // Default collapse all multi-line items or long responses, tool calls, tool results, and system prompts
+  const isMultiLine = row.text.includes('\n') || row.text.length > 70
+  const defaultCollapsed = isMultiLine && row.kind !== 'assistant.reasoning'
+  const [expanded, setExpanded] = useState<boolean>(!defaultCollapsed)
 
   return (
     <article

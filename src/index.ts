@@ -118,13 +118,14 @@ export const inject = [
 
 type UserEvent = SessionEvent<'user/message'>
 type AssistantEvent = SessionEvent<'assistant/message'>
-
+type ToolResultEvent = SessionEvent<'tool/result'>
 interface ClosedTurn {
   turn: number
   startSeq: number
   endSeq: number
   user?: UserEvent
   assistants: AssistantEvent[]
+  events: SessionEvent[]
 }
 
 interface ManualAssistantTurn {
@@ -221,18 +222,29 @@ function closedTurns(events: readonly SessionEvent[]): ClosedTurn[] {
         turn: event.data.turn,
         startSeq: event.seq,
         assistants: [],
+        events: [],
       }
       continue
     }
     if (current === undefined) continue
-    if (event.type === 'user/message'
-      && current.user === undefined
-      && event.data.source.kind === 'user') {
-      current.user = event
+    if (event.type === 'user/message') {
+      if (event.data.source.kind === 'user' && current.user === undefined) {
+        current.user = event
+      }
+      current.events.push(event)
       continue
     }
     if (event.type === 'assistant/message' && event.data.turn === current.turn) {
       current.assistants.push(event)
+      current.events.push(event)
+      continue
+    }
+    if (event.type === 'tool/result' && event.data.turn === current.turn) {
+      current.events.push(event)
+      continue
+    }
+    if (event.type === 'request/header') {
+      current.events.push(event)
       continue
     }
     if (event.type === 'turn/end' && event.data.turn === current.turn) {
@@ -243,47 +255,84 @@ function closedTurns(events: readonly SessionEvent[]): ClosedTurn[] {
   return result
 }
 
+function formatToolResultText(event: ToolResultEvent): string {
+  const msg = event.data.message
+  const parts: string[] = []
+  for (const block of msg.content) {
+    if (block.type === 'tool-result' && Array.isArray(block.content)) {
+      for (const nested of block.content) {
+        if (nested.type === 'text') parts.push(nested.text)
+      }
+    }
+  }
+  return parts.join('\n') || ''
+}
+
 function editableMessages(turns: readonly ClosedTurn[]): EditableMessageBlock[] {
   const result: EditableMessageBlock[] = []
   for (const turn of turns) {
-    if (turn.user !== undefined) {
-      for (const [blockIndex, block] of turn.user.data.content.entries()) {
-        if (block.type !== 'text') continue
-        result.push({
-          key: `${String(turn.user.seq)}:${String(blockIndex)}`,
-          turn: turn.turn,
-          eventSeq: turn.user.seq,
-          blockIndex,
-          kind: 'user',
-          text: block.text,
-          time: turn.user.time,
-        })
-      }
-    }
-    for (const event of turn.assistants) {
-      for (const [blockIndex, block] of event.data.message.content.entries()) {
-        if (isTextualBlock(block)) {
+    // Process events in exact chronological sequence (by event sequence / time)
+    for (const event of turn.events) {
+      if (event.type === 'request/header') {
+        if (event.data.header?.system) {
           result.push({
-            key: `${String(event.seq)}:${String(blockIndex)}`,
+            key: `${String(event.seq)}:sys`,
             turn: turn.turn,
             eventSeq: event.seq,
-            blockIndex,
-            kind: block.type === 'reasoning' ? 'assistant.reasoning' : 'assistant.response',
-            text: block.text,
-            time: event.time,
-          })
-        } else if (block?.type === 'tool-call') {
-          const args = block.arguments ? ` ${block.arguments}` : ''
-          result.push({
-            key: `${String(event.seq)}:${String(blockIndex)}`,
-            turn: turn.turn,
-            eventSeq: event.seq,
-            blockIndex,
-            kind: 'assistant.response',
-            text: `[工具调用: ${block.name || 'tool'}]${args}`,
+            blockIndex: 0,
+            kind: 'system',
+            text: event.data.header.system,
             time: event.time,
           })
         }
+      } else if (event.type === 'user/message') {
+        const isDirectUser = event.data.source.kind === 'user'
+        for (const [blockIndex, block] of event.data.content.entries()) {
+          if (block.type !== 'text') continue
+          result.push({
+            key: `${String(event.seq)}:${String(blockIndex)}`,
+            turn: turn.turn,
+            eventSeq: event.seq,
+            blockIndex,
+            kind: isDirectUser ? 'user' : 'context.inject',
+            text: block.text,
+            time: event.time,
+          })
+        }
+      } else if (event.type === 'assistant/message') {
+        for (const [blockIndex, block] of event.data.message.content.entries()) {
+          if (isTextualBlock(block)) {
+            result.push({
+              key: `${String(event.seq)}:${String(blockIndex)}`,
+              turn: turn.turn,
+              eventSeq: event.seq,
+              blockIndex,
+              kind: block.type === 'reasoning' ? 'assistant.reasoning' : 'assistant.response',
+              text: block.text,
+              time: event.time,
+            })
+          } else if (block?.type === 'tool-call') {
+            result.push({
+              key: `${String(event.seq)}:${String(blockIndex)}`,
+              turn: turn.turn,
+              eventSeq: event.seq,
+              blockIndex,
+              kind: 'tool.call',
+              text: block.arguments || '{}',
+              time: event.time,
+            })
+          }
+        }
+      } else if (event.type === 'tool/result') {
+        result.push({
+          key: `${String(event.seq)}:res`,
+          turn: turn.turn,
+          eventSeq: event.seq,
+          blockIndex: 0,
+          kind: 'tool.result',
+          text: formatToolResultText(event),
+          time: event.time,
+        })
       }
     }
   }
@@ -975,8 +1024,16 @@ function integerOf(value: unknown, name: string): number {
 }
 
 function blockKindOf(value: unknown, label: string): EditableBlockKind {
-  if (value === 'user' || value === 'assistant.reasoning' || value === 'assistant.response') return value
-  throw new TypeError(`${label} 必须是 user、assistant.reasoning 或 assistant.response。`)
+  if (
+    value === 'user' ||
+    value === 'assistant.reasoning' ||
+    value === 'assistant.response' ||
+    value === 'system' ||
+    value === 'tool.call' ||
+    value === 'tool.result' ||
+    value === 'context.inject'
+  ) return value
+  throw new TypeError(`${label} 消息块类型无效。`)
 }
 
 function cascadeOf(value: unknown): CascadePolicy {

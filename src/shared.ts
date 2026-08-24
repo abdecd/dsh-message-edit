@@ -11,7 +11,14 @@ export type CascadePolicy = 'truncate' | 'preserve'
 export type VersionOperation = 'edit' | 'reroll' | 'retry' | 'fork'
 
 /** Editable model-surface block classification. */
-export type EditableBlockKind = 'user' | 'assistant.reasoning' | 'assistant.response'
+export type EditableBlockKind =
+  | 'user'
+  | 'assistant.reasoning'
+  | 'assistant.response'
+  | 'system'
+  | 'tool.call'
+  | 'tool.result'
+  | 'context.inject'
 
 /** Current durable event schema for structurally paired version effects. */
 export const MESSAGE_EDIT_VERSION_SCHEMA = 2

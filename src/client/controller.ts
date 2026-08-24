@@ -107,7 +107,15 @@ function booleanValue(value: unknown, label: string): boolean {
 }
 
 function blockKind(value: unknown): EditableBlockKind {
-  if (value !== 'user' && value !== 'assistant.reasoning' && value !== 'assistant.response') {
+  if (
+    value !== 'user' &&
+    value !== 'assistant.reasoning' &&
+    value !== 'assistant.response' &&
+    value !== 'system' &&
+    value !== 'tool.call' &&
+    value !== 'tool.result' &&
+    value !== 'context.inject'
+  ) {
     throw new TypeError('消息块类型无效')
   }
   return value

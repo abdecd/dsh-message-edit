@@ -501,6 +501,21 @@
   background: rgba(245, 158, 11, 0.05);
 }
 
+.messageCard[data-kind='tool-result'] {
+  border-left-color: #06b6d4; /* Cyan for tool results */
+  background: rgba(6, 182, 212, 0.05);
+}
+
+.messageCard[data-kind='system'] {
+  border-left-color: #ec4899; /* Pink/Rose for system prompt */
+  background: rgba(236, 72, 153, 0.05);
+}
+
+.messageCard[data-kind='context-inject'] {
+  border-left-color: #6366f1; /* Indigo for injected skills/context */
+  background: rgba(99, 102, 241, 0.05);
+}
+
 .messageHeader {
   justify-content: flex-start;
   gap: 6px;
@@ -536,6 +551,24 @@
 .kindBadge[data-kind='tool-call'] {
   color: #d97706;
   background: rgba(245, 158, 11, 0.12);
+  font-weight: 500;
+}
+
+.kindBadge[data-kind='tool-result'] {
+  color: #0891b2;
+  background: rgba(6, 182, 212, 0.12);
+  font-weight: 500;
+}
+
+.kindBadge[data-kind='system'] {
+  color: #db2777;
+  background: rgba(236, 72, 153, 0.12);
+  font-weight: 500;
+}
+
+.kindBadge[data-kind='context-inject'] {
+  color: #4f46e5;
+  background: rgba(99, 102, 241, 0.12);
   font-weight: 500;
 }
 
