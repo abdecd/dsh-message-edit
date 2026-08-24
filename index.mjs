@@ -61,9 +61,9 @@ function newUserMessage(text) {
 }
 function replaceTextBlock(content, blockIndex, text) {
 	const block = content[blockIndex];
-	if (!isTextualBlock(block)) throw new Error("所选内容块不是可编辑文本。");
+	if (!isTextualBlock(block) && block?.type !== "tool-call") throw new Error("所选内容块不是可编辑文本。");
 	return content.map((candidate, index) => index === blockIndex ? {
-		...candidate,
+		type: "text",
 		text
 	} : structuredClone(candidate));
 }
@@ -114,15 +114,24 @@ function editableMessages(turns) {
 				time: turn.user.time
 			});
 		}
-		for (const event of turn.assistants) for (const [blockIndex, block] of event.data.message.content.entries()) {
-			if (!isTextualBlock(block)) continue;
+		for (const event of turn.assistants) for (const [blockIndex, block] of event.data.message.content.entries()) if (isTextualBlock(block)) result.push({
+			key: `${String(event.seq)}:${String(blockIndex)}`,
+			turn: turn.turn,
+			eventSeq: event.seq,
+			blockIndex,
+			kind: block.type === "reasoning" ? "assistant.reasoning" : "assistant.response",
+			text: block.text,
+			time: event.time
+		});
+		else if (block?.type === "tool-call") {
+			const args = block.arguments ? ` ${block.arguments}` : "";
 			result.push({
 				key: `${String(event.seq)}:${String(blockIndex)}`,
 				turn: turn.turn,
 				eventSeq: event.seq,
 				blockIndex,
-				kind: block.type === "reasoning" ? "assistant.reasoning" : "assistant.response",
-				text: block.text,
+				kind: "assistant.response",
+				text: `[工具调用: ${block.name || "tool"}]${args}`,
 				time: event.time
 			});
 		}
@@ -141,7 +150,7 @@ function downstreamUsers(turns, start) {
 	return turns.slice(start).flatMap((turn) => turn.user === void 0 ? [] : [cloneUser(turn.user.data)]);
 }
 function assistantReplacement(event, blockIndex, text) {
-	const replaced = replaceTextBlock(event.data.message.content, blockIndex, text).filter((block) => block.type === "text" || block.type === "reasoning");
+	const replaced = replaceTextBlock(event.data.message.content, blockIndex, text).filter((block) => block.type === "text" || block.type === "reasoning" || block.type === "tool-call");
 	return Object.freeze({
 		id: crypto.randomUUID(),
 		role: "assistant",
@@ -181,8 +190,9 @@ function editPlan(operation, turns) {
 		};
 	}
 	const before = event.data.message.content[operation.blockIndex];
-	if (!isTextualBlock(before)) throw new Error("所选助手消息块不是文本或思考。");
+	if (!isTextualBlock(before) && before?.type !== "tool-call") throw new Error("所选助手消息块不是文本或工具调用。");
 	const blockKind = before.type === "reasoning" ? "assistant.reasoning" : "assistant.response";
+	const beforeText = isTextualBlock(before) ? before.text : `[工具调用: ${before.name || "tool"}]${before.arguments ? ` ${before.arguments}` : ""}`;
 	if (turn.user === void 0) throw new Error("所选助手消息没有可重建的用户输入。");
 	return {
 		boundary: turn.startSeq - 1,
@@ -193,7 +203,7 @@ function editPlan(operation, turns) {
 			targetEventSeq: event.seq,
 			targetBlockIndex: operation.blockIndex,
 			blockKind,
-			before: before.text,
+			before: beforeText,
 			after: operation.text
 		}),
 		manualTurns: [{

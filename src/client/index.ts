@@ -29,7 +29,7 @@ export function apply(ctx: ClientContext): void {
     name: 'conversation.view',
     id: 'message-edit-timeline',
     order: MESSAGE_EDIT_VIEW_ORDER,
-    label: 'Timeline',
+    label: '编辑',
     inject: (sessionId: SessionId) => controllerFor(sessionId).face,
   }, MessageEditTimelineView)
 

@@ -462,15 +462,15 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var InlineMessageEdit_module_css_default = {
-			"overlay": "Ps3QDa_overlay",
+			"input": "Ps3QDa_input",
 			"title": "Ps3QDa_title",
-			"pickerItemActive": "Ps3QDa_pickerItemActive",
-			"iconButton": "Ps3QDa_iconButton",
-			"panel": "Ps3QDa_panel",
-			"pickerItem": "Ps3QDa_pickerItem",
 			"picker": "Ps3QDa_picker",
-			"footer": "Ps3QDa_footer",
-			"input": "Ps3QDa_input"
+			"panel": "Ps3QDa_panel",
+			"overlay": "Ps3QDa_overlay",
+			"pickerItem": "Ps3QDa_pickerItem",
+			"iconButton": "Ps3QDa_iconButton",
+			"pickerItemActive": "Ps3QDa_pickerItemActive",
+			"footer": "Ps3QDa_footer"
 		};
 		//#endregion
 		//#region src/client/InlineMessageEdit.tsx
@@ -763,10 +763,10 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var MessageEditHeader_module_css_default = {
-			"root": "ovpcJa_root",
-			"rerollButton": "ovpcJa_rerollButton",
+			"iconButton": "ovpcJa_iconButton",
 			"counter": "ovpcJa_counter",
-			"iconButton": "ovpcJa_iconButton"
+			"root": "ovpcJa_root",
+			"rerollButton": "ovpcJa_rerollButton"
 		};
 		//#endregion
 		//#region src/client/MessageEditHeader.tsx
@@ -831,7 +831,7 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region \0dsh-css:/run/media/user1/78E6859DE6855BEE/code/js/dsh-message-edit/src/client/MessageEditTimelineView.module.css.mjs
-		const css = ".hbVeaa_root{box-sizing:border-box;width:100%;height:100%;min-height:0;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);padding:24px;overflow:auto}.hbVeaa_pageHeader{justify-content:space-between;align-items:flex-start;gap:20px;max-width:1480px;margin:0 auto 16px;display:flex}.hbVeaa_title,.hbVeaa_intro,.hbVeaa_subtitle,.hbVeaa_notice,.hbVeaa_error,.hbVeaa_empty,.hbVeaa_turnTitle,.hbVeaa_turnPreview,.hbVeaa_messageText{margin:0}.hbVeaa_title{font-size:22px;font-weight:600;line-height:30px}.hbVeaa_intro{max-width:700px;color:var(--dsw-alias-label-tertiary);margin-top:4px;font-size:13px;line-height:20px}.hbVeaa_headerActions{flex:none;align-items:flex-end;gap:8px;display:flex}.hbVeaa_cascadeField{color:var(--dsw-alias-label-secondary);flex-direction:column;gap:4px;font-size:11px;line-height:16px;display:flex}.hbVeaa_select,.hbVeaa_textarea,.hbVeaa_primaryButton,.hbVeaa_secondaryButton,.hbVeaa_textButton,.hbVeaa_versionButton{box-sizing:border-box;font:inherit}.hbVeaa_select,.hbVeaa_textarea{border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border-radius:8px}.hbVeaa_select{height:34px;padding:0 30px 0 9px;font-size:12px}.hbVeaa_primaryButton,.hbVeaa_secondaryButton,.hbVeaa_textButton,.hbVeaa_versionButton{cursor:pointer;border:0}.hbVeaa_primaryButton,.hbVeaa_secondaryButton{border-radius:17px;justify-content:center;align-items:center;min-height:34px;padding:0 13px;font-size:12px;line-height:18px;display:inline-flex}.hbVeaa_primaryButton{color:var(--dsw-alias-label-primary-foreground);background:var(--dsw-alias-button-primary-fill)}.hbVeaa_primaryButton:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}.hbVeaa_secondaryButton{border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);background:0 0}.hbVeaa_secondaryButton:hover:not(:disabled),.hbVeaa_textButton:hover:not(:disabled),.hbVeaa_versionButton:hover:not(:disabled){color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}.hbVeaa_primaryButton:disabled,.hbVeaa_secondaryButton:disabled,.hbVeaa_textButton:disabled,.hbVeaa_versionButton:disabled,.hbVeaa_select:disabled{cursor:default;opacity:.45}.hbVeaa_primaryButton:focus-visible,.hbVeaa_secondaryButton:focus-visible,.hbVeaa_textButton:focus-visible,.hbVeaa_versionButton:focus-visible,.hbVeaa_select:focus-visible,.hbVeaa_textarea:focus-visible{box-shadow:0 0 0 2px var(--dsw-alias-border-l3);outline:none}.hbVeaa_notice,.hbVeaa_error{max-width:1480px;margin:0 auto 10px;font-size:12px;line-height:18px}.hbVeaa_notice{color:var(--dsw-alias-state-warn-label)}.hbVeaa_error{color:var(--dsw-alias-state-error-primary)}.hbVeaa_status{box-sizing:border-box;width:100%;height:100%;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);flex-direction:column;align-items:flex-start;gap:12px;padding:24px;display:flex}.hbVeaa_status .hbVeaa_error{margin:0}.hbVeaa_columns{grid-template-columns:minmax(280px,.72fr) minmax(520px,1.75fr);align-items:start;gap:18px;max-width:1480px;margin:0 auto;display:grid}.hbVeaa_versionsPanel,.hbVeaa_turnsPanel{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:14px;min-width:0;padding:16px}.hbVeaa_versionsPanel{position:sticky;top:0}.hbVeaa_sectionHeading{justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px;display:flex}.hbVeaa_effectControls{background:var(--dsw-alias-bg-module-platform);border-radius:9px;flex-direction:column;gap:8px;margin-bottom:12px;padding:10px;display:flex}.hbVeaa_effectDepth{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:17px}.hbVeaa_effectButtons{flex-wrap:wrap;gap:6px;display:flex}.hbVeaa_effectButtons .hbVeaa_secondaryButton{min-height:28px;padding:0 10px;font-size:11px}.hbVeaa_subtitle{font-size:16px;font-weight:500;line-height:24px}.hbVeaa_count{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.hbVeaa_versionList,.hbVeaa_turnList{margin:0;padding:0;list-style:none}.hbVeaa_versionList{flex-direction:column;gap:4px;display:flex}.hbVeaa_versionItem{--message-edit-depth:0;padding-left:calc(var(--message-edit-depth) * 14px);position:relative}.hbVeaa_versionButton{width:100%;min-width:0;color:var(--dsw-alias-label-secondary);text-align:left;background:0 0;border-radius:9px;align-items:flex-start;gap:9px;padding:9px;display:flex;position:relative}.hbVeaa_versionButton[data-current]{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-module-platform);opacity:1}.hbVeaa_versionButton:not([data-current]) .hbVeaa_pathBadge{opacity:.8}.hbVeaa_versionLine{background:var(--dsw-alias-border-l2);width:1px;position:absolute;top:0;bottom:0;left:14px}.hbVeaa_versionDot{z-index:1;border:2px solid var(--dsw-alias-bg-layer-1);background:var(--dsw-alias-label-tertiary);border-radius:50%;flex:none;width:7px;height:7px;margin-top:6px}.hbVeaa_versionButton[data-current] .hbVeaa_versionDot{border-color:var(--dsw-alias-bg-module-platform);background:var(--dsw-alias-brand-primary)}.hbVeaa_versionMain{flex-direction:column;flex:1;min-width:0;display:flex}.hbVeaa_versionTitle{text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:500;line-height:20px;overflow:hidden}.hbVeaa_versionMeta{color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;font-size:10px;line-height:16px;overflow:hidden}.hbVeaa_versionDiff{color:var(--dsw-alias-label-tertiary);flex-direction:column;gap:2px;margin-top:5px;font-size:10px;line-height:15px;display:flex}.hbVeaa_versionDiff span{-webkit-line-clamp:2;white-space:pre-wrap;overflow-wrap:anywhere;-webkit-box-orient:vertical;display:-webkit-box;overflow:hidden}.hbVeaa_currentBadge,.hbVeaa_pathBadge,.hbVeaa_kindBadge{border-radius:9px;flex:none;padding:1px 6px;font-size:10px;line-height:17px}.hbVeaa_currentBadge{color:var(--dsw-alias-brand-primary);background:var(--dsw-alias-bg-layer-1)}.hbVeaa_pathBadge{color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-bg-layer-1)}.hbVeaa_turnList{flex-direction:column;gap:14px;display:flex}.hbVeaa_turnSection{border:1px solid var(--dsw-alias-border-l2);border-radius:11px;padding:13px}.hbVeaa_turnHeader,.hbVeaa_messageHeader,.hbVeaa_editorActions{justify-content:space-between;align-items:center;gap:10px;display:flex}.hbVeaa_turnHeader{border-bottom:1px solid var(--dsw-alias-border-l2);align-items:flex-start;padding-bottom:11px}.hbVeaa_turnTitle{font-size:14px;font-weight:500;line-height:22px}.hbVeaa_turnPreview{max-width:700px;color:var(--dsw-alias-label-tertiary);-webkit-line-clamp:2;white-space:pre-wrap;-webkit-box-orient:vertical;font-size:11px;line-height:17px;display:-webkit-box;overflow:hidden}.hbVeaa_messageList{flex-direction:column;gap:8px;margin-top:10px;display:flex}.hbVeaa_messageCard{background:var(--dsw-alias-bg-module-platform);border-radius:9px;padding:10px}.hbVeaa_messageHeader{justify-content:flex-start}.hbVeaa_kindBadge{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1)}.hbVeaa_kindBadge[data-kind=assistant\\.reasoning]{color:var(--dsw-alias-label-tertiary)}.hbVeaa_messageTime{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:17px}.hbVeaa_textButton{color:var(--dsw-alias-label-secondary);background:0 0;border-radius:12px;margin-left:auto;padding:3px 8px;font-size:11px;line-height:17px}.hbVeaa_messageText{max-height:220px;color:var(--dsw-alias-label-secondary);white-space:pre-wrap;overflow-wrap:anywhere;margin-top:7px;font-family:inherit;font-size:12px;line-height:19px;overflow:auto}.hbVeaa_editor{margin-top:8px}.hbVeaa_textarea{resize:vertical;width:100%;min-height:120px;padding:9px;font-size:12px;line-height:19px}.hbVeaa_editorActions{margin-top:8px}.hbVeaa_editorHint{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:16px}.hbVeaa_empty{color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-bg-module-platform);border-radius:10px;padding:18px;font-size:13px;line-height:20px}@media (width<=1000px){.hbVeaa_columns{grid-template-columns:1fr}.hbVeaa_versionsPanel{position:static}}@media (width<=680px){.hbVeaa_root{padding:16px}.hbVeaa_pageHeader,.hbVeaa_headerActions,.hbVeaa_turnHeader,.hbVeaa_editorActions{flex-direction:column;align-items:stretch}.hbVeaa_headerActions,.hbVeaa_primaryButton,.hbVeaa_secondaryButton{width:100%}}.hbVeaa_changeSummary{align-items:center;gap:8px;display:flex}.hbVeaa_changeChip{color:var(--dsw-alias-state-warn-label);font-size:11px;line-height:17px}.hbVeaa_newBadge,.hbVeaa_editedBadge{border-radius:9px;flex:none;padding:1px 6px;font-size:10px;line-height:17px}.hbVeaa_newBadge{color:var(--dsw-alias-brand-primary);background:var(--dsw-alias-bg-layer-1)}.hbVeaa_editedBadge{color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-bg-layer-1)}.hbVeaa_messageSpacer{flex:1}.hbVeaa_textButton[data-danger]{color:var(--dsw-alias-state-error-primary)}.hbVeaa_turnActions{flex-wrap:wrap;flex:none;justify-content:flex-end;gap:6px;display:flex}.hbVeaa_turnActions .hbVeaa_secondaryButton{min-height:28px;padding:0 10px;font-size:11px}.hbVeaa_composerFooter{border-top:1px dashed var(--dsw-alias-border-l2);margin-top:12px;padding-top:12px}.hbVeaa_emptyState{flex-direction:column;align-items:flex-start;gap:10px;display:flex}.hbVeaa_messageCard[data-added]{border:1px dashed var(--dsw-alias-brand-primary)}";
+		const css = ".hbVeaa_root{box-sizing:border-box;width:100%;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);padding:24px}.hbVeaa_pageHeader{justify-content:space-between;align-items:flex-start;gap:20px;max-width:1480px;margin:0 auto 16px;display:flex}.hbVeaa_title,.hbVeaa_intro,.hbVeaa_subtitle,.hbVeaa_notice,.hbVeaa_error,.hbVeaa_empty,.hbVeaa_turnTitle,.hbVeaa_turnPreview,.hbVeaa_messageText{margin:0}.hbVeaa_title{font-size:22px;font-weight:600;line-height:30px}.hbVeaa_intro{max-width:700px;color:var(--dsw-alias-label-tertiary);margin-top:4px;font-size:13px;line-height:20px}.hbVeaa_headerActions{flex:none;align-items:flex-end;gap:8px;display:flex}.hbVeaa_cascadeField{color:var(--dsw-alias-label-secondary);flex-direction:column;gap:4px;font-size:11px;line-height:16px;display:flex}.hbVeaa_select,.hbVeaa_textarea,.hbVeaa_primaryButton,.hbVeaa_secondaryButton,.hbVeaa_textButton,.hbVeaa_versionButton,.hbVeaa_checkbox{box-sizing:border-box;font:inherit}.hbVeaa_select,.hbVeaa_textarea{border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border-radius:8px}.hbVeaa_select{height:34px;padding:0 30px 0 9px;font-size:12px}.hbVeaa_primaryButton,.hbVeaa_secondaryButton,.hbVeaa_textButton,.hbVeaa_versionButton,.hbVeaa_expandButton{cursor:pointer;border:0}.hbVeaa_primaryButton,.hbVeaa_secondaryButton{border-radius:17px;justify-content:center;align-items:center;min-height:34px;padding:0 13px;font-size:12px;line-height:18px;display:inline-flex}.hbVeaa_primaryButton{color:var(--dsw-alias-label-primary-foreground);background:var(--dsw-alias-button-primary-fill)}.hbVeaa_primaryButton:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}.hbVeaa_secondaryButton{border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);background:0 0}.hbVeaa_secondaryButton:hover:not(:disabled),.hbVeaa_textButton:hover:not(:disabled),.hbVeaa_versionButton:hover:not(:disabled),.hbVeaa_expandButton:hover:not(:disabled){color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}.hbVeaa_primaryButton:disabled,.hbVeaa_secondaryButton:disabled,.hbVeaa_textButton:disabled,.hbVeaa_versionButton:disabled,.hbVeaa_select:disabled{cursor:default;opacity:.45}.hbVeaa_primaryButton:focus-visible,.hbVeaa_secondaryButton:focus-visible,.hbVeaa_textButton:focus-visible,.hbVeaa_versionButton:focus-visible,.hbVeaa_expandButton:focus-visible,.hbVeaa_select:focus-visible,.hbVeaa_textarea:focus-visible,.hbVeaa_checkbox:focus-visible{box-shadow:0 0 0 2px var(--dsw-alias-border-l3);outline:none}.hbVeaa_notice,.hbVeaa_error{max-width:1480px;margin:0 auto 10px;font-size:12px;line-height:18px}.hbVeaa_notice{color:var(--dsw-alias-state-warn-label)}.hbVeaa_error{color:var(--dsw-alias-state-error-primary)}.hbVeaa_status{box-sizing:border-box;width:100%;height:100%;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);flex-direction:column;align-items:flex-start;gap:12px;padding:24px;display:flex}.hbVeaa_status .hbVeaa_error{margin:0}.hbVeaa_columns{grid-template-columns:minmax(280px,.72fr) minmax(520px,1.75fr);align-items:start;gap:18px;width:100%;max-width:1480px;margin:0 auto;display:grid}.hbVeaa_versionsPanel,.hbVeaa_turnsPanel{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:14px;min-width:0;padding:16px}.hbVeaa_versionsPanel{position:-webkit-sticky;position:sticky;top:0}.hbVeaa_sectionHeading{justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px;display:flex}.hbVeaa_turnsPanel .hbVeaa_sectionHeading{z-index:5;background:var(--dsw-alias-bg-layer-1);border-bottom:2px solid var(--dsw-alias-border-l2);border-top-left-radius:14px;border-top-right-radius:14px;margin:-16px -16px 14px;padding:14px 16px;position:-webkit-sticky;position:sticky;top:0;box-shadow:0 2px 6px #00000014}.hbVeaa_effectControls{background:var(--dsw-alias-bg-module-platform);border-radius:9px;flex-direction:column;gap:8px;margin-bottom:12px;padding:10px;display:flex}.hbVeaa_effectDepth{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:17px}.hbVeaa_effectButtons{flex-wrap:wrap;gap:6px;display:flex}.hbVeaa_effectButtons .hbVeaa_secondaryButton{min-height:28px;padding:0 10px;font-size:11px}.hbVeaa_subtitle{font-size:16px;font-weight:500;line-height:24px}.hbVeaa_count{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.hbVeaa_versionList,.hbVeaa_turnList{margin:0;padding:0;list-style:none}.hbVeaa_versionList{flex-direction:column;gap:4px;display:flex}.hbVeaa_versionItem{--message-edit-depth:0;padding-left:calc(var(--message-edit-depth) * 14px);position:relative}.hbVeaa_versionButton{width:100%;min-width:0;color:var(--dsw-alias-label-secondary);text-align:left;background:0 0;border-radius:9px;align-items:flex-start;gap:9px;padding:9px;display:flex;position:relative}.hbVeaa_versionButton[data-current]{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-module-platform);opacity:1}.hbVeaa_versionButton:not([data-current]) .hbVeaa_pathBadge{opacity:.8}.hbVeaa_versionLine{background:var(--dsw-alias-border-l2);width:1px;position:absolute;top:0;bottom:0;left:14px}.hbVeaa_versionDot{z-index:1;border:2px solid var(--dsw-alias-bg-layer-1);background:var(--dsw-alias-label-tertiary);border-radius:50%;flex:none;width:7px;height:7px;margin-top:6px}.hbVeaa_versionButton[data-current] .hbVeaa_versionDot{border-color:var(--dsw-alias-bg-module-platform);background:var(--dsw-alias-brand-primary)}.hbVeaa_versionMain{flex-direction:column;flex:1;min-width:0;display:flex}.hbVeaa_versionTitle{text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:500;line-height:20px;overflow:hidden}.hbVeaa_versionMeta{color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;font-size:10px;line-height:16px;overflow:hidden}.hbVeaa_versionDiff{color:var(--dsw-alias-label-tertiary);flex-direction:column;gap:2px;margin-top:5px;font-size:10px;line-height:15px;display:flex}.hbVeaa_versionDiff span{-webkit-line-clamp:2;white-space:pre-wrap;overflow-wrap:anywhere;-webkit-box-orient:vertical;display:-webkit-box;overflow:hidden}.hbVeaa_currentBadge,.hbVeaa_pathBadge,.hbVeaa_kindBadge{border-radius:9px;flex:none;padding:1px 6px;font-size:10px;line-height:17px}.hbVeaa_currentBadge{color:var(--dsw-alias-brand-primary);background:var(--dsw-alias-bg-layer-1)}.hbVeaa_pathBadge{color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-bg-layer-1)}.hbVeaa_turnList{flex-direction:column;gap:8px;display:flex}.hbVeaa_turnSection{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);border-radius:8px;padding:8px 10px;overflow:clip}.hbVeaa_turnHeader,.hbVeaa_messageHeader,.hbVeaa_editorActions{justify-content:space-between;align-items:center;gap:8px;display:flex}.hbVeaa_turnHeader{z-index:4;background:var(--dsw-alias-bg-layer-1);border-bottom:1px solid var(--dsw-alias-border-l2);cursor:pointer;user-select:none;border-top-left-radius:8px;border-top-right-radius:8px;align-items:center;margin:-8px -10px 6px;padding:8px 10px;position:-webkit-sticky;position:sticky;top:54px;box-shadow:0 2px 4px #0000000d}.hbVeaa_turnHeaderLeft{cursor:pointer;user-select:none;flex:1;align-items:center;gap:8px;min-width:0;display:flex}.hbVeaa_turnTitle{white-space:nowrap;flex:none;font-size:13px;font-weight:600;line-height:20px}.hbVeaa_turnPreview{color:var(--dsw-alias-label-tertiary);white-space:nowrap;text-overflow:ellipsis;max-width:450px;font-size:12px;line-height:18px;overflow:hidden}.hbVeaa_messageList{flex-direction:column;gap:5px;margin-top:6px;display:flex}.hbVeaa_messageCard{background:var(--dsw-alias-bg-module-platform);border-left:3px solid #0000;border-radius:6px;padding:6px 10px}.hbVeaa_messageCard[data-kind=user]{background:#3b82f60d;border-left-color:#3b82f6}.hbVeaa_messageCard[data-kind=assistant\\.response]{background:#10b9810d;border-left-color:#10b981}.hbVeaa_messageCard[data-kind=assistant\\.reasoning]{background:#8b5cf60d;border-left-color:#8b5cf6}.hbVeaa_messageCard[data-kind=tool-call]{background:#f59e0b0d;border-left-color:#f59e0b}.hbVeaa_messageHeader{justify-content:flex-start;gap:6px}.hbVeaa_kindBadge{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border-radius:4px;padding:1px 5px;font-size:11px;line-height:17px}.hbVeaa_kindBadge[data-kind=user]{color:#2563eb;background:#3b82f61f;font-weight:500}.hbVeaa_kindBadge[data-kind=assistant\\.response]{color:#059669;background:#10b9811f;font-weight:500}.hbVeaa_kindBadge[data-kind=assistant\\.reasoning]{color:#7c3aed;background:#8b5cf61f;font-weight:500}.hbVeaa_kindBadge[data-kind=tool-call]{color:#d97706;background:#f59e0b1f;font-weight:500}.hbVeaa_messageTime{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:17px}.hbVeaa_textButton{color:var(--dsw-alias-label-secondary);background:0 0;border-radius:10px;margin-left:auto;padding:2px 7px;font-size:11px;line-height:16px}.hbVeaa_checkbox{width:14px;height:14px;accent-color:var(--dsw-alias-brand-primary);cursor:pointer;margin:0 4px 0 0}.hbVeaa_checkbox:disabled{cursor:default;opacity:.45}.hbVeaa_batchActions{align-items:center;gap:6px;display:flex}.hbVeaa_batchActions .hbVeaa_textButton{margin-left:0}.hbVeaa_messageTextWrapper{flex-direction:column;gap:2px;display:flex}.hbVeaa_messageText{max-height:180px;color:var(--dsw-alias-label-secondary);white-space:pre-wrap;overflow-wrap:anywhere;margin-top:4px;font-family:inherit;font-size:12px;line-height:18px;overflow:auto}.hbVeaa_messageTextCollapsed{text-overflow:ellipsis;white-space:nowrap;max-height:none;overflow:hidden}.hbVeaa_expandButton{color:var(--dsw-alias-brand-primary);background:0 0;border-radius:3px;align-self:flex-start;margin-top:2px;padding:2px 6px;font-size:11px;line-height:15px}.hbVeaa_editor{margin-top:6px}.hbVeaa_textarea{resize:vertical;width:100%;min-height:100px;padding:7px 9px;font-size:12px;line-height:18px}.hbVeaa_editorActions{margin-top:6px}.hbVeaa_editorHint{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}.hbVeaa_empty{color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-bg-module-platform);border-radius:10px;padding:18px;font-size:13px;line-height:20px}@media (width<=1000px){.hbVeaa_columns{grid-template-columns:1fr}.hbVeaa_versionsPanel{position:static}}@media (width<=680px){.hbVeaa_root{padding:16px}.hbVeaa_pageHeader,.hbVeaa_headerActions,.hbVeaa_turnHeader,.hbVeaa_editorActions{flex-direction:column;align-items:stretch}.hbVeaa_headerActions,.hbVeaa_primaryButton,.hbVeaa_secondaryButton{width:100%}}.hbVeaa_changeSummary{align-items:center;gap:8px;display:flex}.hbVeaa_changeChip{color:var(--dsw-alias-state-warn-label);font-size:11px;line-height:17px}.hbVeaa_newBadge,.hbVeaa_editedBadge{border-radius:9px;flex:none;padding:1px 6px;font-size:10px;line-height:17px}.hbVeaa_newBadge{color:var(--dsw-alias-brand-primary);background:var(--dsw-alias-bg-layer-1)}.hbVeaa_editedBadge{color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-bg-layer-1)}.hbVeaa_messageSpacer{flex:1}.hbVeaa_textButton[data-danger]{color:var(--dsw-alias-state-error-primary)}.hbVeaa_turnActions{flex-wrap:wrap;flex:none;justify-content:flex-end;gap:4px;display:flex}.hbVeaa_turnActions .hbVeaa_secondaryButton{border-radius:11px;min-height:22px;padding:0 7px;font-size:10px;line-height:14px}.hbVeaa_composerFooter{border-top:1px dashed var(--dsw-alias-border-l2);margin-top:12px;padding-top:12px}.hbVeaa_emptyState{flex-direction:column;align-items:flex-start;gap:10px;display:flex}.hbVeaa_messageCard[data-added]{border:1px dashed var(--dsw-alias-brand-primary)}.hbVeaa_dragHandle{color:var(--dsw-alias-label-tertiary);cursor:grab;user-select:none;border-radius:4px;justify-content:center;align-items:center;margin-right:2px;padding:2px 4px;font-size:14px;line-height:1;display:inline-flex}.hbVeaa_dragHandle:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}.hbVeaa_dragHandle:active{cursor:grabbing}.hbVeaa_messageCard[data-dragging]{opacity:.4}.hbVeaa_messageCard[data-drag-over-top]{border-top:2px solid var(--dsw-alias-brand-primary)}.hbVeaa_messageCard[data-drag-over-bottom]{border-bottom:2px solid var(--dsw-alias-brand-primary)}.hbVeaa_collapseTurnButton{color:var(--dsw-alias-label-tertiary);cursor:pointer;user-select:none;background:0 0;border:0;border-radius:4px;justify-content:center;align-items:center;padding:0 4px;font-size:11px;line-height:18px;display:inline-flex}.hbVeaa_collapseTurnButton:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}.hbVeaa_turnSection[data-collapsed]{padding-bottom:8px}.hbVeaa_turnSection[data-collapsed] .hbVeaa_turnHeader{box-shadow:none;border-bottom:0;margin-bottom:-8px}.hbVeaa_turnSection[data-dragging]{opacity:.4}.hbVeaa_turnSection[data-drag-over-top]{border-top:3px solid var(--dsw-alias-brand-primary)}.hbVeaa_turnSection[data-drag-over-bottom]{border-bottom:3px solid var(--dsw-alias-brand-primary)}";
 		const tagId = "dsh-message-edit/MessageEditTimelineView.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
 			const tag = document.createElement("style");
@@ -841,63 +841,71 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var MessageEditTimelineView_module_css_default = {
-			"status": "hbVeaa_status",
-			"editorActions": "hbVeaa_editorActions",
-			"emptyState": "hbVeaa_emptyState",
-			"turnPreview": "hbVeaa_turnPreview",
-			"select": "hbVeaa_select",
-			"versionsPanel": "hbVeaa_versionsPanel",
-			"kindBadge": "hbVeaa_kindBadge",
-			"newBadge": "hbVeaa_newBadge",
-			"notice": "hbVeaa_notice",
-			"cascadeField": "hbVeaa_cascadeField",
-			"headerActions": "hbVeaa_headerActions",
-			"composerFooter": "hbVeaa_composerFooter",
-			"currentBadge": "hbVeaa_currentBadge",
-			"versionButton": "hbVeaa_versionButton",
-			"changeChip": "hbVeaa_changeChip",
-			"secondaryButton": "hbVeaa_secondaryButton",
-			"title": "hbVeaa_title",
-			"error": "hbVeaa_error",
-			"empty": "hbVeaa_empty",
-			"turnSection": "hbVeaa_turnSection",
-			"root": "hbVeaa_root",
-			"editedBadge": "hbVeaa_editedBadge",
-			"textarea": "hbVeaa_textarea",
 			"intro": "hbVeaa_intro",
-			"editorHint": "hbVeaa_editorHint",
-			"effectButtons": "hbVeaa_effectButtons",
-			"sectionHeading": "hbVeaa_sectionHeading",
-			"columns": "hbVeaa_columns",
-			"turnList": "hbVeaa_turnList",
-			"messageList": "hbVeaa_messageList",
-			"messageCard": "hbVeaa_messageCard",
-			"versionDiff": "hbVeaa_versionDiff",
-			"messageTime": "hbVeaa_messageTime",
-			"primaryButton": "hbVeaa_primaryButton",
-			"turnHeader": "hbVeaa_turnHeader",
-			"changeSummary": "hbVeaa_changeSummary",
-			"count": "hbVeaa_count",
-			"messageText": "hbVeaa_messageText",
-			"pageHeader": "hbVeaa_pageHeader",
-			"effectDepth": "hbVeaa_effectDepth",
-			"pathBadge": "hbVeaa_pathBadge",
-			"turnTitle": "hbVeaa_turnTitle",
-			"versionDot": "hbVeaa_versionDot",
+			"select": "hbVeaa_select",
 			"subtitle": "hbVeaa_subtitle",
-			"versionTitle": "hbVeaa_versionTitle",
-			"effectControls": "hbVeaa_effectControls",
-			"turnsPanel": "hbVeaa_turnsPanel",
-			"editor": "hbVeaa_editor",
-			"turnActions": "hbVeaa_turnActions",
-			"versionMain": "hbVeaa_versionMain",
-			"messageSpacer": "hbVeaa_messageSpacer",
-			"versionMeta": "hbVeaa_versionMeta",
+			"emptyState": "hbVeaa_emptyState",
+			"messageList": "hbVeaa_messageList",
+			"effectButtons": "hbVeaa_effectButtons",
+			"pathBadge": "hbVeaa_pathBadge",
+			"currentBadge": "hbVeaa_currentBadge",
+			"secondaryButton": "hbVeaa_secondaryButton",
+			"empty": "hbVeaa_empty",
+			"batchActions": "hbVeaa_batchActions",
+			"sectionHeading": "hbVeaa_sectionHeading",
+			"turnList": "hbVeaa_turnList",
+			"root": "hbVeaa_root",
+			"collapseTurnButton": "hbVeaa_collapseTurnButton",
+			"messageText": "hbVeaa_messageText",
+			"primaryButton": "hbVeaa_primaryButton",
+			"columns": "hbVeaa_columns",
 			"versionItem": "hbVeaa_versionItem",
-			"versionList": "hbVeaa_versionList",
+			"messageHeader": "hbVeaa_messageHeader",
+			"dragHandle": "hbVeaa_dragHandle",
+			"expandButton": "hbVeaa_expandButton",
+			"versionsPanel": "hbVeaa_versionsPanel",
+			"editor": "hbVeaa_editor",
 			"textButton": "hbVeaa_textButton",
+			"effectDepth": "hbVeaa_effectDepth",
+			"editedBadge": "hbVeaa_editedBadge",
+			"turnHeaderLeft": "hbVeaa_turnHeaderLeft",
+			"messageSpacer": "hbVeaa_messageSpacer",
+			"versionList": "hbVeaa_versionList",
+			"versionMeta": "hbVeaa_versionMeta",
+			"editorHint": "hbVeaa_editorHint",
+			"turnActions": "hbVeaa_turnActions",
+			"turnTitle": "hbVeaa_turnTitle",
+			"error": "hbVeaa_error",
+			"versionDiff": "hbVeaa_versionDiff",
+			"headerActions": "hbVeaa_headerActions",
+			"messageTime": "hbVeaa_messageTime",
+			"versionTitle": "hbVeaa_versionTitle",
+			"count": "hbVeaa_count",
+			"messageTextCollapsed": "hbVeaa_messageTextCollapsed",
+			"versionDot": "hbVeaa_versionDot",
+			"turnPreview": "hbVeaa_turnPreview",
+			"status": "hbVeaa_status",
+			"changeChip": "hbVeaa_changeChip",
+			"title": "hbVeaa_title",
+			"notice": "hbVeaa_notice",
+			"messageCard": "hbVeaa_messageCard",
 			"versionLine": "hbVeaa_versionLine",
-			"messageHeader": "hbVeaa_messageHeader"
+			"newBadge": "hbVeaa_newBadge",
+			"kindBadge": "hbVeaa_kindBadge",
+			"checkbox": "hbVeaa_checkbox",
+			"textarea": "hbVeaa_textarea",
+			"composerFooter": "hbVeaa_composerFooter",
+			"effectControls": "hbVeaa_effectControls",
+			"versionButton": "hbVeaa_versionButton",
+			"turnSection": "hbVeaa_turnSection",
+			"changeSummary": "hbVeaa_changeSummary",
+			"editorActions": "hbVeaa_editorActions",
+			"turnsPanel": "hbVeaa_turnsPanel",
+			"messageTextWrapper": "hbVeaa_messageTextWrapper",
+			"versionMain": "hbVeaa_versionMain",
+			"pageHeader": "hbVeaa_pageHeader",
+			"cascadeField": "hbVeaa_cascadeField",
+			"turnHeader": "hbVeaa_turnHeader"
 		};
 		//#endregion
 		//#region src/client/MessageEditTimelineView.tsx
@@ -1026,19 +1034,60 @@ window.__ModuleLoader__.load({
 				})
 			});
 		}
-		function MessageCard({ row, baseline, editing, disabled, onBeginEdit, onCancelEdit, onTextChange, onApplyEdit, onDelete }) {
+		function MessageCard({ row, baseline, editing, selected, disabled, isDragging, dragOverPosition, onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop, onSelectToggle, onBeginEdit, onCancelEdit, onTextChange, onApplyEdit, onDelete }) {
 			const active = editing?.key === row.key;
 			const edited = !row.added && baseline !== void 0 && baseline.text !== row.text;
+			const isMultiLine = row.text.includes("\n") || row.kind === "assistant.response" && row.text.length > 70;
+			const defaultCollapsed = isMultiLine && (row.kind === "user" || row.kind === "assistant.response");
+			const [expanded, setExpanded] = (0, react.useState)(!defaultCollapsed);
+			const isToolCall = row.kind === "assistant.response" && row.text.startsWith("[工具调用:");
+			const badgeLabel = isToolCall ? "工具调用" : BLOCK_LABEL[row.kind];
+			const kindDataAttr = isToolCall ? "tool-call" : row.kind;
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("article", {
 				className: MessageEditTimelineView_module_css_default["messageCard"],
+				"data-kind": kindDataAttr,
 				"data-added": row.added || void 0,
+				"data-dragging": isDragging || void 0,
+				"data-drag-over-top": dragOverPosition === "top" || void 0,
+				"data-drag-over-bottom": dragOverPosition === "bottom" || void 0,
+				onDragOver: (e) => {
+					onDragOver?.(e, row);
+				},
+				onDragLeave,
+				onDrop: (e) => {
+					onDrop?.(e, row);
+				},
 				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 					className: MessageEditTimelineView_module_css_default["messageHeader"],
 					children: [
+						!disabled && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: MessageEditTimelineView_module_css_default["dragHandle"],
+							draggable: true,
+							title: "按住拖拽排序",
+							onDragStart: (e) => {
+								e.dataTransfer.effectAllowed = "move";
+								e.dataTransfer.setData("text/plain", row.key);
+								onDragStart?.(row);
+							},
+							onDragEnd: () => {
+								onDragEnd?.();
+							},
+							children: "⋮⋮"
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+							type: "checkbox",
+							className: MessageEditTimelineView_module_css_default["checkbox"],
+							checked: selected,
+							disabled,
+							title: "选择此消息进行批量操作",
+							onChange: () => {
+								onSelectToggle(row);
+							}
+						}),
 						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 							className: MessageEditTimelineView_module_css_default["kindBadge"],
-							"data-kind": row.kind,
-							children: BLOCK_LABEL[row.kind]
+							"data-kind": kindDataAttr,
+							children: badgeLabel
 						}),
 						row.added ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 							className: MessageEditTimelineView_module_css_default["newBadge"],
@@ -1101,9 +1150,19 @@ window.__ModuleLoader__.load({
 							children: row.added ? "添加" : "完成编辑"
 						})]
 					})]
-				}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
-					className: MessageEditTimelineView_module_css_default["messageText"],
-					children: row.text || "（空内容）"
+				}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: MessageEditTimelineView_module_css_default["messageTextWrapper"],
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
+						className: `${MessageEditTimelineView_module_css_default["messageText"]}${!expanded && isMultiLine ? ` ${MessageEditTimelineView_module_css_default["messageTextCollapsed"]}` : ""}`,
+						children: row.text || "（空内容）"
+					}), isMultiLine && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: MessageEditTimelineView_module_css_default["expandButton"],
+						onClick: () => {
+							setExpanded(!expanded);
+						},
+						children: expanded ? "收起" : "展开全文"
+					})]
 				})]
 			});
 		}
@@ -1113,6 +1172,13 @@ window.__ModuleLoader__.load({
 			const [cascade, setCascade] = (0, react.useState)("truncate");
 			const [editing, setEditing] = (0, react.useState)(null);
 			const [draft, setDraft] = (0, react.useState)(null);
+			const [history, setHistory] = (0, react.useState)([]);
+			const [selectedKeys, setSelectedKeys] = (0, react.useState)(/* @__PURE__ */ new Set());
+			const [draggingKey, setDraggingKey] = (0, react.useState)(null);
+			const [draggingSectionId, setDraggingSectionId] = (0, react.useState)(null);
+			const [dragOverTarget, setDragOverTarget] = (0, react.useState)(null);
+			const [dragOverSection, setDragOverSection] = (0, react.useState)(null);
+			const [collapsedSectionIds, setCollapsedSectionIds] = (0, react.useState)(/* @__PURE__ */ new Set());
 			(0, react.useEffect)(() => {
 				const release = acquire();
 				load();
@@ -1135,8 +1201,27 @@ window.__ModuleLoader__.load({
 					signature,
 					rows: baselineRows
 				});
+				setHistory([]);
 			}, [signature, baselineRows]);
 			const rows = draft?.rows ?? baselineRows;
+			const updateDraftRows = (nextRows) => {
+				setHistory((prev) => [...prev.slice(-30), rows]);
+				setDraft({
+					signature,
+					rows: nextRows
+				});
+			};
+			const undoDraft = () => {
+				if (history.length === 0) return;
+				const prevRows = history[history.length - 1];
+				if (!prevRows) return;
+				setHistory(history.slice(0, -1));
+				setDraft({
+					signature,
+					rows: prevRows
+				});
+				setEditing(null);
+			};
 			const sections = (0, react.useMemo)(() => buildSections(rows, baseline, timeline?.retryableTurns ?? []), [
 				rows,
 				baseline,
@@ -1169,13 +1254,10 @@ window.__ModuleLoader__.load({
 			* buffer discards the row, a filled buffer keeps it in the draft. */
 			const settleAddedRow = (current, leaving) => {
 				if (leaving === void 0 || !leaving.added) return;
-				setDraft({
-					signature,
-					rows: current.text.length === 0 ? rows.filter((candidate) => candidate.key !== current.key) : rows.map((candidate) => candidate.key === current.key ? {
-						...candidate,
-						text: current.text
-					} : candidate)
-				});
+				updateDraftRows(current.text.length === 0 ? rows.filter((candidate) => candidate.key !== current.key) : rows.map((candidate) => candidate.key === current.key ? {
+					...candidate,
+					text: current.text
+				} : candidate));
 			};
 			const beginEdit = (row) => {
 				const current = editing;
@@ -1186,40 +1268,242 @@ window.__ModuleLoader__.load({
 				if (current === null) return;
 				settleAddedRow(current, rows.find((candidate) => candidate.key === current.key));
 			};
+			const toggleSelectRow = (row) => {
+				setSelectedKeys((prev) => {
+					const next = new Set(prev);
+					if (next.has(row.key)) next.delete(row.key);
+					else next.add(row.key);
+					return next;
+				});
+			};
+			const toggleSelectSection = (section) => {
+				setSelectedKeys((prev) => {
+					const next = new Set(prev);
+					if (section.rows.every((r) => prev.has(r.key))) for (const r of section.rows) next.delete(r.key);
+					else for (const r of section.rows) next.add(r.key);
+					return next;
+				});
+			};
+			const toggleSectionCollapse = (sectionId) => {
+				setCollapsedSectionIds((prev) => {
+					const next = new Set(prev);
+					if (next.has(sectionId)) next.delete(sectionId);
+					else next.add(sectionId);
+					return next;
+				});
+			};
+			const collapseAllSections = () => {
+				setCollapsedSectionIds(new Set(sections.map((s) => s.id)));
+			};
+			const expandAllSections = () => {
+				setCollapsedSectionIds(/* @__PURE__ */ new Set());
+			};
+			const selectAll = () => {
+				setSelectedKeys(new Set(rows.map((row) => row.key)));
+			};
+			const invertSelection = () => {
+				setSelectedKeys((prev) => {
+					const next = /* @__PURE__ */ new Set();
+					for (const row of rows) if (!prev.has(row.key)) next.add(row.key);
+					return next;
+				});
+			};
+			const clearSelection = () => {
+				setSelectedKeys(/* @__PURE__ */ new Set());
+			};
+			const deleteSelected = () => {
+				if (selectedKeys.size === 0) return;
+				if (editing !== null && selectedKeys.has(editing.key)) setEditing(null);
+				const doomed = new Set(selectedKeys);
+				for (const section of sections) {
+					const head = section.rows[0];
+					if (head !== void 0 && head.kind === "user" && doomed.has(head.key)) for (const row of section.rows) doomed.add(row.key);
+				}
+				updateDraftRows(rows.filter((candidate) => !doomed.has(candidate.key)));
+				setSelectedKeys(/* @__PURE__ */ new Set());
+			};
 			const cancelEdit = () => {
 				const current = editing;
 				setEditing(null);
 				if (current === null) return;
-				if (rows.find((candidate) => candidate.key === current.key)?.added === true) setDraft({
-					signature,
-					rows: rows.filter((candidate) => candidate.key !== current.key)
-				});
+				if (rows.find((candidate) => candidate.key === current.key)?.added === true) updateDraftRows(rows.filter((candidate) => candidate.key !== current.key));
 			};
 			const applyEdit = (row, text) => {
 				setEditing(null);
-				setDraft({
-					signature,
-					rows: rows.map((candidate) => candidate.key === row.key ? {
-						...candidate,
-						text
-					} : candidate)
+				updateDraftRows(rows.map((candidate) => candidate.key === row.key ? {
+					...candidate,
+					text
+				} : candidate));
+			};
+			const handleDragStart = (row) => {
+				setDraggingKey(row.key);
+				setDraggingSectionId(null);
+			};
+			const handleSectionDragStart = (section) => {
+				setDraggingSectionId(section.id);
+				setDraggingKey(null);
+			};
+			const handleDragEnd = () => {
+				setDraggingKey(null);
+				setDraggingSectionId(null);
+				setDragOverTarget(null);
+				setDragOverSection(null);
+			};
+			const autoScroll = (event) => {
+				let scrollEl = event.currentTarget.parentElement;
+				while (scrollEl && scrollEl !== document.body) {
+					if (scrollEl.scrollHeight > scrollEl.clientHeight) {
+						const overflow = getComputedStyle(scrollEl).overflowY;
+						if (overflow === "auto" || overflow === "scroll") break;
+					}
+					scrollEl = scrollEl.parentElement;
+				}
+				if (!scrollEl) scrollEl = document.querySelector(".wSkVaW_scrollBody");
+				if (!scrollEl) return;
+				const rect = scrollEl.getBoundingClientRect();
+				const composerSeat = document.querySelector(".wSkVaW_composerSeat");
+				const effectiveBottom = composerSeat ? composerSeat.getBoundingClientRect().top : rect.bottom;
+				const threshold = 120;
+				const maxSpeed = 50;
+				if (event.clientY < rect.top + threshold) {
+					const ratio = Math.max(.2, (rect.top + threshold - event.clientY) / threshold);
+					scrollEl.scrollTop -= Math.round(maxSpeed * ratio);
+				} else if (event.clientY > effectiveBottom - threshold) {
+					const ratio = Math.max(.2, (event.clientY - (effectiveBottom - threshold)) / threshold);
+					scrollEl.scrollTop += Math.round(maxSpeed * ratio);
+				}
+			};
+			const handleDragOver = (event, targetRow) => {
+				if (draggingKey === null || draggingKey === targetRow.key) return;
+				event.preventDefault();
+				autoScroll(event);
+				const rect = event.currentTarget.getBoundingClientRect();
+				const position = event.clientY - rect.top < rect.height / 2 ? "top" : "bottom";
+				if (dragOverTarget?.key !== targetRow.key || dragOverTarget.position !== position) setDragOverTarget({
+					key: targetRow.key,
+					position
 				});
+			};
+			const handleSectionDragOver = (event, targetSection) => {
+				autoScroll(event);
+				if (draggingSectionId !== null) {
+					if (draggingSectionId === targetSection.id) return;
+					event.preventDefault();
+					const rect = event.currentTarget.getBoundingClientRect();
+					const position = event.clientY - rect.top < rect.height / 2 ? "top" : "bottom";
+					if (dragOverSection?.id !== targetSection.id || dragOverSection.position !== position) setDragOverSection({
+						id: targetSection.id,
+						position
+					});
+					return;
+				}
+				if (draggingKey !== null) event.preventDefault();
+			};
+			const handleDrop = (event, targetRow) => {
+				event.preventDefault();
+				event.stopPropagation();
+				const sourceKey = draggingKey || event.dataTransfer.getData("text/plain");
+				if (!sourceKey || sourceKey === targetRow.key) {
+					handleDragEnd();
+					return;
+				}
+				let position = dragOverTarget?.position;
+				if (!position || dragOverTarget?.key !== targetRow.key) {
+					const rect = event.currentTarget.getBoundingClientRect();
+					position = event.clientY - rect.top < rect.height / 2 ? "top" : "bottom";
+				}
+				const currentRows = [...rows];
+				const sourceIndex = currentRows.findIndex((r) => r.key === sourceKey);
+				const targetIndex = currentRows.findIndex((r) => r.key === targetRow.key);
+				if (sourceIndex === -1 || targetIndex === -1) {
+					handleDragEnd();
+					return;
+				}
+				const [movedRow] = currentRows.splice(sourceIndex, 1);
+				if (!movedRow) {
+					handleDragEnd();
+					return;
+				}
+				let insertIndex = currentRows.findIndex((r) => r.key === targetRow.key);
+				if (position === "bottom") insertIndex += 1;
+				currentRows.splice(insertIndex, 0, movedRow);
+				updateDraftRows(currentRows);
+				handleDragEnd();
+			};
+			const handleSectionDrop = (event, targetSection) => {
+				event.preventDefault();
+				event.stopPropagation();
+				if (draggingSectionId !== null) {
+					if (draggingSectionId === targetSection.id) {
+						handleDragEnd();
+						return;
+					}
+					const sourceSectionIndex = sections.findIndex((s) => s.id === draggingSectionId);
+					const targetSectionIndex = sections.findIndex((s) => s.id === targetSection.id);
+					if (sourceSectionIndex === -1 || targetSectionIndex === -1) {
+						handleDragEnd();
+						return;
+					}
+					let position = dragOverSection?.position;
+					if (!position || dragOverSection?.id !== targetSection.id) {
+						const rect = event.currentTarget.getBoundingClientRect();
+						position = event.clientY - rect.top < rect.height / 2 ? "top" : "bottom";
+					}
+					const newSections = [...sections];
+					const [movedSection] = newSections.splice(sourceSectionIndex, 1);
+					if (!movedSection) {
+						handleDragEnd();
+						return;
+					}
+					let insertIndex = newSections.findIndex((s) => s.id === targetSection.id);
+					if (position === "bottom") insertIndex += 1;
+					newSections.splice(insertIndex, 0, movedSection);
+					const reorderedRows = newSections.flatMap((s) => s.rows);
+					updateDraftRows(reorderedRows);
+					handleDragEnd();
+					return;
+				}
+				const sourceKey = draggingKey || event.dataTransfer.getData("text/plain");
+				if (!sourceKey) {
+					handleDragEnd();
+					return;
+				}
+				const lastRow = targetSection.rows[targetSection.rows.length - 1];
+				if (!lastRow || lastRow.key === sourceKey) {
+					handleDragEnd();
+					return;
+				}
+				const currentRows = [...rows];
+				const sourceIndex = currentRows.findIndex((r) => r.key === sourceKey);
+				if (sourceIndex === -1) {
+					handleDragEnd();
+					return;
+				}
+				const [movedRow] = currentRows.splice(sourceIndex, 1);
+				if (!movedRow) {
+					handleDragEnd();
+					return;
+				}
+				const targetIndex = currentRows.findIndex((r) => r.key === lastRow.key);
+				if (targetIndex === -1) currentRows.push(movedRow);
+				else currentRows.splice(targetIndex + 1, 0, movedRow);
+				updateDraftRows(currentRows);
+				handleDragEnd();
 			};
 			const deleteRow = (row) => {
 				if (editing?.key === row.key) setEditing(null);
+				setSelectedKeys((prev) => {
+					const next = new Set(prev);
+					next.delete(row.key);
+					return next;
+				});
 				if (row.kind !== "user") {
-					setDraft({
-						signature,
-						rows: rows.filter((candidate) => candidate.key !== row.key)
-					});
+					updateDraftRows(rows.filter((candidate) => candidate.key !== row.key));
 					return;
 				}
 				const section = sections.find((candidate) => candidate.rows.some((candidateRow) => candidateRow.key === row.key));
 				const doomed = new Set(section?.rows.map((candidateRow) => candidateRow.key) ?? [row.key]);
-				setDraft({
-					signature,
-					rows: rows.filter((candidate) => !doomed.has(candidate.key))
-				});
+				updateDraftRows(rows.filter((candidate) => !doomed.has(candidate.key)));
 			};
 			const addRow = (kind, afterKey) => {
 				const row = addedRow(kind);
@@ -1229,10 +1513,7 @@ window.__ModuleLoader__.load({
 					const index = next.findIndex((candidate) => candidate.key === afterKey);
 					next.splice(index === -1 ? next.length : index + 1, 0, row);
 				}
-				setDraft({
-					signature,
-					rows: next
-				});
+				updateDraftRows(next);
 				setEditing({
 					key: row.key,
 					text: ""
@@ -1240,6 +1521,7 @@ window.__ModuleLoader__.load({
 			};
 			const resetDraft = () => {
 				setEditing(null);
+				setSelectedKeys(/* @__PURE__ */ new Set());
 				setDraft({
 					signature,
 					rows: baselineRows
@@ -1365,21 +1647,98 @@ window.__ModuleLoader__.load({
 								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h2", {
 									className: MessageEditTimelineView_module_css_default["subtitle"],
 									children: "已落定消息"
-								}), changes.hasChanges ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-									className: MessageEditTimelineView_module_css_default["changeSummary"],
-									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-										className: MessageEditTimelineView_module_css_default["changeChip"],
-										children: changeSummaryText(changes)
-									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-										type: "button",
-										className: MessageEditTimelineView_module_css_default["textButton"],
-										disabled: busy,
-										onClick: resetDraft,
-										children: "重置"
-									})]
-								}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-									className: MessageEditTimelineView_module_css_default["count"],
-									children: String(timeline.messages.length)
+								}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+									className: MessageEditTimelineView_module_css_default["batchActions"],
+									children: [
+										sections.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+											type: "button",
+											className: MessageEditTimelineView_module_css_default["textButton"],
+											disabled: busy,
+											title: "展开所有历史回合",
+											onClick: expandAllSections,
+											children: "展开全部"
+										}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+											type: "button",
+											className: MessageEditTimelineView_module_css_default["textButton"],
+											disabled: busy,
+											title: "收起所有历史回合",
+											onClick: collapseAllSections,
+											children: "收起全部"
+										})] }),
+										rows.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+											/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+												type: "button",
+												className: MessageEditTimelineView_module_css_default["textButton"],
+												disabled: busy,
+												title: "全选所有消息",
+												onClick: selectAll,
+												children: "全选"
+											}),
+											/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+												type: "button",
+												className: MessageEditTimelineView_module_css_default["textButton"],
+												disabled: busy,
+												title: "反向选择消息",
+												onClick: invertSelection,
+												children: "反选"
+											}),
+											selectedKeys.size > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+												type: "button",
+												className: MessageEditTimelineView_module_css_default["textButton"],
+												disabled: busy,
+												title: "取消所有选择",
+												onClick: clearSelection,
+												children: "取消选择"
+											}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+												type: "button",
+												className: MessageEditTimelineView_module_css_default["textButton"],
+												"data-danger": true,
+												disabled: busy,
+												title: "批量删除选中的消息",
+												onClick: deleteSelected,
+												children: [
+													"删除选中 (",
+													selectedKeys.size,
+													")"
+												]
+											})] })
+										] }),
+										changes.hasChanges ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+											className: MessageEditTimelineView_module_css_default["changeSummary"],
+											children: [
+												/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+													className: MessageEditTimelineView_module_css_default["changeChip"],
+													children: changeSummaryText(changes)
+												}),
+												history.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+													type: "button",
+													className: MessageEditTimelineView_module_css_default["textButton"],
+													disabled: busy,
+													title: "撤销最近一次草稿修改",
+													onClick: undoDraft,
+													children: "撤销修改"
+												}),
+												/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+													type: "button",
+													className: MessageEditTimelineView_module_css_default["textButton"],
+													disabled: busy,
+													title: "重置全部草稿回原始版本",
+													onClick: resetDraft,
+													children: "重置"
+												})
+											]
+										}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [history.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+											type: "button",
+											className: MessageEditTimelineView_module_css_default["textButton"],
+											disabled: busy,
+											title: "撤销最近一次草稿修改",
+											onClick: undoDraft,
+											children: "撤销修改"
+										}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+											className: MessageEditTimelineView_module_css_default["count"],
+											children: String(timeline.messages.length)
+										})] })
+									]
 								})]
 							}), sections.length === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 								className: MessageEditTimelineView_module_css_default["emptyState"],
@@ -1400,17 +1759,80 @@ window.__ModuleLoader__.load({
 								children: sections.map((section) => {
 									const retryTurn = section.retry;
 									const tailKey = section.rows[section.rows.length - 1]?.key;
+									const isCollapsed = collapsedSectionIds.has(section.id);
 									return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", {
 										className: MessageEditTimelineView_module_css_default["turnSection"],
+										"data-collapsed": isCollapsed || void 0,
+										"data-dragging": draggingSectionId === section.id || void 0,
+										"data-drag-over-top": dragOverSection?.id === section.id && dragOverSection.position === "top" || void 0,
+										"data-drag-over-bottom": dragOverSection?.id === section.id && dragOverSection.position === "bottom" || void 0,
+										onDragOver: (e) => {
+											handleSectionDragOver(e, section);
+										},
+										onDrop: (e) => {
+											handleSectionDrop(e, section);
+										},
 										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 											className: MessageEditTimelineView_module_css_default["turnHeader"],
-											children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h3", {
-												className: MessageEditTimelineView_module_css_default["turnTitle"],
-												children: section.turnLabel
-											}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
-												className: MessageEditTimelineView_module_css_default["turnPreview"],
-												children: section.preview || "（空内容）"
-											})] }), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+											onClick: (e) => {
+												const target = e.target;
+												if (target && (target.tagName === "INPUT" || target.tagName === "BUTTON" || target.closest("button") || target.closest(`.${MessageEditTimelineView_module_css_default["dragHandle"]}`))) return;
+												toggleSectionCollapse(section.id);
+											},
+											children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+												className: MessageEditTimelineView_module_css_default["turnHeaderLeft"],
+												children: [
+													/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+														type: "button",
+														className: MessageEditTimelineView_module_css_default["collapseTurnButton"],
+														title: isCollapsed ? "展开此回合" : "收起此回合",
+														onClick: (e) => {
+															e.stopPropagation();
+															toggleSectionCollapse(section.id);
+														},
+														children: isCollapsed ? "▶" : "▼"
+													}),
+													!busy && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+														className: MessageEditTimelineView_module_css_default["dragHandle"],
+														draggable: true,
+														title: "按住拖拽移动整个回合",
+														onDragStart: (e) => {
+															e.dataTransfer.effectAllowed = "move";
+															e.dataTransfer.setData("text/plain", `section:${section.id}`);
+															handleSectionDragStart(section);
+														},
+														onDragEnd: handleDragEnd,
+														children: "⋮⋮"
+													}),
+													/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+														type: "checkbox",
+														className: MessageEditTimelineView_module_css_default["checkbox"],
+														checked: section.rows.length > 0 && section.rows.every((r) => selectedKeys.has(r.key)),
+														ref: (el) => {
+															if (el) {
+																const count = section.rows.filter((r) => selectedKeys.has(r.key)).length;
+																el.indeterminate = count > 0 && count < section.rows.length;
+															}
+														},
+														disabled: busy,
+														title: "选择/取消选择该回合下的所有消息",
+														onChange: () => {
+															toggleSelectSection(section);
+														},
+														onClick: (e) => {
+															e.stopPropagation();
+														}
+													}),
+													/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h3", {
+														className: MessageEditTimelineView_module_css_default["turnTitle"],
+														children: section.turnLabel
+													}),
+													/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+														className: MessageEditTimelineView_module_css_default["turnPreview"],
+														children: section.preview || "（空内容）"
+													})
+												]
+											}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 												className: MessageEditTimelineView_module_css_default["turnActions"],
 												children: [
 													retryTurn === void 0 ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
@@ -1444,13 +1866,21 @@ window.__ModuleLoader__.load({
 													})
 												]
 											})]
-										}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+										}), !isCollapsed && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 											className: MessageEditTimelineView_module_css_default["messageList"],
 											children: section.rows.map((row) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(MessageCard, {
 												row,
 												baseline: baseline.get(row.key),
 												editing,
+												selected: selectedKeys.has(row.key),
 												disabled: busy,
+												isDragging: draggingKey === row.key,
+												dragOverPosition: dragOverTarget?.key === row.key ? dragOverTarget.position : null,
+												onDragStart: handleDragStart,
+												onDragEnd: handleDragEnd,
+												onDragOver: handleDragOver,
+												onDrop: handleDrop,
+												onSelectToggle: toggleSelectRow,
 												onBeginEdit: beginEdit,
 												onCancelEdit: cancelEdit,
 												onTextChange: (text) => {
@@ -1509,7 +1939,7 @@ window.__ModuleLoader__.load({
 				name: "conversation.view",
 				id: "message-edit-timeline",
 				order: 15,
-				label: "Timeline",
+				label: "编辑",
 				inject: (sessionId) => controllerFor(sessionId).face
 			}, MessageEditTimelineView);
 			ctx.slots.register({
