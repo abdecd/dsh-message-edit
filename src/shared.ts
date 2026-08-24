@@ -134,6 +134,7 @@ export interface EditOperation {
   text: string
   cascade: CascadePolicy
   route?: ModelRoute
+  title?: string
 }
 
 /** Regenerate the latest completed assistant reply. */
@@ -141,6 +142,7 @@ export interface RerollOperation {
   action: 'reroll'
   sessionId: string
   route?: ModelRoute
+  title?: string
 }
 
 /** Regenerate any selected historical turn. */
@@ -150,6 +152,7 @@ export interface RetryOperation {
   turn: number
   cascade: CascadePolicy
   route?: ModelRoute
+  title?: string
 }
 
 /** One ordered text row of the composed history sent by a Fork. */
@@ -166,6 +169,7 @@ export interface ForkOperation {
   sessionId: string
   rows: ForkMessageRow[]
   route?: ModelRoute
+  title?: string
 }
 
 /** Mutation accepted by the host route. */

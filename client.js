@@ -462,15 +462,15 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var InlineMessageEdit_module_css_default = {
-			"title": "Ps3QDa_title",
-			"overlay": "Ps3QDa_overlay",
-			"iconButton": "Ps3QDa_iconButton",
-			"picker": "Ps3QDa_picker",
 			"panel": "Ps3QDa_panel",
+			"iconButton": "Ps3QDa_iconButton",
 			"footer": "Ps3QDa_footer",
+			"picker": "Ps3QDa_picker",
 			"pickerItem": "Ps3QDa_pickerItem",
+			"pickerItemActive": "Ps3QDa_pickerItemActive",
 			"input": "Ps3QDa_input",
-			"pickerItemActive": "Ps3QDa_pickerItemActive"
+			"title": "Ps3QDa_title",
+			"overlay": "Ps3QDa_overlay"
 		};
 		//#endregion
 		//#region src/client/InlineMessageEdit.tsx
@@ -767,10 +767,10 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var MessageEditHeader_module_css_default = {
-			"rerollButton": "ovpcJa_rerollButton",
-			"root": "ovpcJa_root",
+			"iconButton": "ovpcJa_iconButton",
 			"counter": "ovpcJa_counter",
-			"iconButton": "ovpcJa_iconButton"
+			"root": "ovpcJa_root",
+			"rerollButton": "ovpcJa_rerollButton"
 		};
 		//#endregion
 		//#region src/client/MessageEditHeader.tsx
@@ -845,71 +845,71 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var MessageEditTimelineView_module_css_default = {
-			"status": "hbVeaa_status",
-			"title": "hbVeaa_title",
-			"turnHeader": "hbVeaa_turnHeader",
-			"dragHandle": "hbVeaa_dragHandle",
-			"error": "hbVeaa_error",
-			"intro": "hbVeaa_intro",
-			"sectionHeading": "hbVeaa_sectionHeading",
-			"versionLine": "hbVeaa_versionLine",
-			"versionMain": "hbVeaa_versionMain",
-			"messageTextWrapper": "hbVeaa_messageTextWrapper",
-			"newBadge": "hbVeaa_newBadge",
-			"versionItem": "hbVeaa_versionItem",
-			"versionDiff": "hbVeaa_versionDiff",
-			"batchActions": "hbVeaa_batchActions",
-			"messageTextCollapsed": "hbVeaa_messageTextCollapsed",
 			"collapseTurnButton": "hbVeaa_collapseTurnButton",
-			"messageTime": "hbVeaa_messageTime",
-			"versionDot": "hbVeaa_versionDot",
-			"editorHint": "hbVeaa_editorHint",
-			"versionsPanel": "hbVeaa_versionsPanel",
-			"columns": "hbVeaa_columns",
-			"kindBadge": "hbVeaa_kindBadge",
-			"editorActions": "hbVeaa_editorActions",
-			"subtitle": "hbVeaa_subtitle",
-			"turnPreview": "hbVeaa_turnPreview",
-			"empty": "hbVeaa_empty",
-			"versionMeta": "hbVeaa_versionMeta",
-			"cascadeField": "hbVeaa_cascadeField",
-			"effectControls": "hbVeaa_effectControls",
-			"textButton": "hbVeaa_textButton",
-			"count": "hbVeaa_count",
-			"pageHeader": "hbVeaa_pageHeader",
+			"headerActions": "hbVeaa_headerActions",
+			"turnActions": "hbVeaa_turnActions",
+			"dragHandle": "hbVeaa_dragHandle",
+			"currentBadge": "hbVeaa_currentBadge",
+			"editedBadge": "hbVeaa_editedBadge",
+			"composerFooter": "hbVeaa_composerFooter",
+			"emptyState": "hbVeaa_emptyState",
+			"versionLine": "hbVeaa_versionLine",
+			"textarea": "hbVeaa_textarea",
 			"versionButton": "hbVeaa_versionButton",
-			"turnSection": "hbVeaa_turnSection",
-			"messageList": "hbVeaa_messageList",
-			"turnTitle": "hbVeaa_turnTitle",
-			"checkbox": "hbVeaa_checkbox",
+			"title": "hbVeaa_title",
+			"turnHeaderLeft": "hbVeaa_turnHeaderLeft",
+			"messageText": "hbVeaa_messageText",
+			"effectControls": "hbVeaa_effectControls",
+			"turnPreview": "hbVeaa_turnPreview",
+			"select": "hbVeaa_select",
+			"error": "hbVeaa_error",
+			"cascadeField": "hbVeaa_cascadeField",
+			"count": "hbVeaa_count",
+			"messageSpacer": "hbVeaa_messageSpacer",
+			"pathBadge": "hbVeaa_pathBadge",
+			"turnHeader": "hbVeaa_turnHeader",
+			"messageTextCollapsed": "hbVeaa_messageTextCollapsed",
+			"editorHint": "hbVeaa_editorHint",
+			"expandButton": "hbVeaa_expandButton",
 			"primaryButton": "hbVeaa_primaryButton",
+			"versionTitle": "hbVeaa_versionTitle",
+			"effectButtons": "hbVeaa_effectButtons",
+			"intro": "hbVeaa_intro",
+			"newBadge": "hbVeaa_newBadge",
+			"editorActions": "hbVeaa_editorActions",
+			"batchActions": "hbVeaa_batchActions",
+			"messageList": "hbVeaa_messageList",
+			"subtitle": "hbVeaa_subtitle",
+			"changeChip": "hbVeaa_changeChip",
+			"messageHeader": "hbVeaa_messageHeader",
+			"sectionHeading": "hbVeaa_sectionHeading",
+			"turnList": "hbVeaa_turnList",
+			"messageTime": "hbVeaa_messageTime",
+			"changeSummary": "hbVeaa_changeSummary",
+			"versionMain": "hbVeaa_versionMain",
+			"pageHeader": "hbVeaa_pageHeader",
+			"columns": "hbVeaa_columns",
+			"empty": "hbVeaa_empty",
+			"secondaryButton": "hbVeaa_secondaryButton",
+			"messageTextWrapper": "hbVeaa_messageTextWrapper",
 			"turnsPanel": "hbVeaa_turnsPanel",
-			"editor": "hbVeaa_editor",
+			"checkbox": "hbVeaa_checkbox",
+			"textButton": "hbVeaa_textButton",
 			"effectDepth": "hbVeaa_effectDepth",
 			"versionList": "hbVeaa_versionList",
-			"versionTitle": "hbVeaa_versionTitle",
-			"messageText": "hbVeaa_messageText",
-			"changeChip": "hbVeaa_changeChip",
-			"textarea": "hbVeaa_textarea",
-			"composerFooter": "hbVeaa_composerFooter",
-			"expandButton": "hbVeaa_expandButton",
-			"turnHeaderLeft": "hbVeaa_turnHeaderLeft",
-			"secondaryButton": "hbVeaa_secondaryButton",
-			"messageHeader": "hbVeaa_messageHeader",
-			"messageSpacer": "hbVeaa_messageSpacer",
-			"headerActions": "hbVeaa_headerActions",
-			"root": "hbVeaa_root",
-			"effectButtons": "hbVeaa_effectButtons",
+			"turnTitle": "hbVeaa_turnTitle",
+			"versionMeta": "hbVeaa_versionMeta",
+			"versionDiff": "hbVeaa_versionDiff",
+			"kindBadge": "hbVeaa_kindBadge",
 			"notice": "hbVeaa_notice",
-			"editedBadge": "hbVeaa_editedBadge",
-			"pathBadge": "hbVeaa_pathBadge",
-			"turnList": "hbVeaa_turnList",
-			"changeSummary": "hbVeaa_changeSummary",
-			"select": "hbVeaa_select",
+			"editor": "hbVeaa_editor",
 			"messageCard": "hbVeaa_messageCard",
-			"turnActions": "hbVeaa_turnActions",
-			"currentBadge": "hbVeaa_currentBadge",
-			"emptyState": "hbVeaa_emptyState"
+			"root": "hbVeaa_root",
+			"turnSection": "hbVeaa_turnSection",
+			"versionItem": "hbVeaa_versionItem",
+			"versionDot": "hbVeaa_versionDot",
+			"versionsPanel": "hbVeaa_versionsPanel",
+			"status": "hbVeaa_status"
 		};
 		//#endregion
 		//#region src/client/MessageEditTimelineView.tsx
@@ -1210,6 +1210,7 @@ window.__ModuleLoader__.load({
 					rows: baselineRows
 				});
 				setHistory([]);
+				setCollapsedSectionIds(new Set(baselineRows.map((r) => r.turn !== void 0 ? `turn-${String(r.turn)}` : `added-${r.key}`)));
 			}, [signature, baselineRows]);
 			const rows = draft?.rows ?? baselineRows;
 			const updateDraftRows = (nextRows) => {
@@ -1535,12 +1536,21 @@ window.__ModuleLoader__.load({
 					rows: baselineRows
 				});
 			};
-			const forkRows = () => rows.map((row) => ({
+			const hasSelection = selectedKeys.size > 0;
+			const activeRows = (0, react.useMemo)(() => {
+				if (!hasSelection) return rows;
+				return rows.filter((r) => selectedKeys.has(r.key));
+			}, [
+				rows,
+				selectedKeys,
+				hasSelection
+			]);
+			const forkRows = () => activeRows.map((row) => ({
 				kind: row.kind,
 				text: row.text
 			}));
-			const lastRow = rows[rows.length - 1];
-			const forkLabel = state.pending === "fork" ? "正在 Fork…" : lastRow === void 0 ? "Fork 空白历史" : lastRow.kind === "user" ? "Fork 生成回复" : "Fork（不生成回复）";
+			const lastActiveRow = activeRows[activeRows.length - 1];
+			const forkLabel = state.pending === "fork" ? "正在 Fork…" : hasSelection ? lastActiveRow === void 0 ? "Fork 选中消息 (0)" : lastActiveRow.kind === "user" ? `Fork 选中项并回复 (${selectedKeys.size})` : `Fork 选中项 (${selectedKeys.size})` : lastActiveRow === void 0 ? "Fork 空白历史" : lastActiveRow.kind === "user" ? "Fork 生成回复" : "Fork（不生成回复）";
 			if (timeline === null || state.status === "error") return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
 				className: MessageEditTimelineView_module_css_default["status"],
 				children: [
@@ -1595,8 +1605,8 @@ window.__ModuleLoader__.load({
 								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 									type: "button",
 									className: MessageEditTimelineView_module_css_default["primaryButton"],
-									disabled: busy || editing !== null || !changes.hasChanges,
-									title: "按右列当前内容重建消息历史并生成新版本；结尾的用户消息会触发新的助手回复",
+									disabled: busy || editing !== null || !changes.hasChanges && !hasSelection,
+									title: hasSelection ? "基于当前选中的消息列表重建新版本历史" : "按右列当前内容重建消息历史并生成新版本；结尾的用户消息会触发新的助手回复",
 									onClick: () => {
 										fork(forkRows());
 									},

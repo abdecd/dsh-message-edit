@@ -10,6 +10,7 @@ import {
   type SessionEventType,
   type SurfaceEventType,
   type SurfaceIntent,
+  type EpochHeader,
 } from '@deepseek-ai/dsh-session'
 ;(KNOWN_SESSION_EVENT_TYPES as Set<string>).add('message-edit/version')
 import type {
@@ -18,7 +19,10 @@ import type {
 } from '@deepseek-ai/dsh-session-query'
 import type {
   AssistantMessage,
+  CallId,
   ContentBlock,
+  MessageId,
+  ToolResultMessage,
   UserMessage,
 } from '@deepseek-ai/dsh-llm'
 import type { Workspace } from '@deepseek-ai/dsh-workspace'
@@ -128,30 +132,23 @@ interface ClosedTurn {
   events: SessionEvent[]
 }
 
-interface ManualAssistantTurn {
-  turn: number
-  /** Absent for a userless closed turn (a composed turn without a user row). */
+interface ManualTurnItem {
+  kind: 'header' | 'user' | 'assistant' | 'tool.result'
+  header?: EpochHeader
   user?: UserMessage
-  /** Absent for a user-only closed turn (a composed turn whose reply was deleted). */
   assistant?: AssistantMessage
+  toolResult?: ToolResultMessage
 }
 
-/** One textual block of a composed assistant message, kept in original order. */
-interface ComposedBlock {
-  type: 'reasoning' | 'text'
-  text: string
-}
-
-/** One composed history turn: an optional user row plus an ordered block list. */
-interface ComposedTurn {
-  user?: string
-  blocks: ComposedBlock[]
+interface ManualTurn {
+  turn: number
+  items: ManualTurnItem[]
 }
 
 interface OperationPlan {
   boundary: number
   version: MessageEditVersionEvent
-  manualTurns: ManualAssistantTurn[]
+  manualTurns: ManualTurn[]
   queuedUsers: UserMessage[]
 }
 
@@ -197,11 +194,33 @@ function cloneUser(message: UserMessage, content: ContentBlock[] = structuredClo
 /** Build a fresh user message from composed text. */
 function newUserMessage(text: string): UserMessage {
   return Object.freeze({
-    id: crypto.randomUUID(),
+    id: crypto.randomUUID() as MessageId,
     role: 'user' as const,
     content: Object.freeze([{ type: 'text', text }] as ContentBlock[]),
     source: Object.freeze({ kind: 'user' as const }),
   }) as UserMessage
+}
+
+function newInjectedUserMessage(text: string): UserMessage {
+  return Object.freeze({
+    id: crypto.randomUUID() as MessageId,
+    role: 'user' as const,
+    content: Object.freeze([{ type: 'text', text }] as ContentBlock[]),
+    source: Object.freeze({ kind: 'plugin' as const, plugin: 'context-injection' }),
+  }) as UserMessage
+}
+
+function newToolResultMessage(text: string, callId = crypto.randomUUID() as CallId): ToolResultMessage {
+  return Object.freeze({
+    id: crypto.randomUUID() as MessageId,
+    role: 'user' as const,
+    content: Object.freeze([{
+      type: 'tool-result' as const,
+      toolCallId: callId,
+      content: [{ type: 'text' as const, text }],
+    }]),
+    source: Object.freeze({ kind: 'tool' as const, callId }),
+  }) as ToolResultMessage
 }
 
 function replaceTextBlock(content: readonly ContentBlock[], blockIndex: number, text: string): ContentBlock[] {
@@ -423,8 +442,10 @@ function editPlan(operation: EditOperation, turns: readonly ClosedTurn[]): Opera
     }),
     manualTurns: [{
       turn: turn.turn,
-      user: cloneUser(turn.user.data),
-      assistant: assistantReplacement(event, operation.blockIndex, operation.text),
+      items: [
+        { kind: 'user', user: cloneUser(turn.user.data) },
+        { kind: 'assistant', assistant: assistantReplacement(event, operation.blockIndex, operation.text) },
+      ],
     }],
     queuedUsers: operation.cascade === 'preserve'
       ? downstreamUsers(turns, turnIndex + 1)
@@ -477,56 +498,85 @@ function rerollPlan(sessionId: string, turns: readonly ClosedTurn[]): OperationP
   throw new Error('当前会话没有可重生成的已落定助手回复。')
 }
 
-/** Fold composed rows into turns; a user row always opens a new turn.
- * A leading assistant row opens a userless turn (a turn without user input).
- * Assistant rows keep their original order, so multi-step turns with several
- * reasoning/text blocks compose back into one ordered assistant message. */
-function groupForkRows(rows: readonly ForkMessageRow[]): ComposedTurn[] {
-  const turns: ComposedTurn[] = []
-  let current: ComposedTurn | undefined
+/** Group draft rows into structured manual turns with full Node fidelity. */
+function groupForkRowsToTurns(
+  rows: readonly ForkMessageRow[],
+  route: { provider: string; model: string } | undefined,
+): ManualTurn[] {
+  const turns: ManualTurn[] = []
+  let current: ManualTurn | undefined
+  let pendingAssistantBlocks: ContentBlock[] = []
+
+  const flushAssistant = (turn: ManualTurn): void => {
+    if (pendingAssistantBlocks.length === 0 || route === undefined) return
+    const msg = Object.freeze({
+      id: crypto.randomUUID() as MessageId,
+      role: 'assistant' as const,
+      content: Object.freeze([...pendingAssistantBlocks]),
+      source: Object.freeze({
+        kind: 'model' as const,
+        provider: route.provider,
+        model: route.model,
+      }),
+    }) as AssistantMessage
+    turn.items.push({ kind: 'assistant', assistant: msg })
+    pendingAssistantBlocks = []
+  }
+
   for (const row of rows) {
     if (row.kind === 'user') {
-      if (row.text.length === 0) throw new Error('用户消息文本不能为空。')
-      current = { blocks: [] }
-      current.user = row.text
+      if (current !== undefined) flushAssistant(current)
+      current = { turn: turns.length + 1, items: [] }
+      current.items.push({ kind: 'user', user: newUserMessage(row.text) })
       turns.push(current)
       continue
     }
+
     if (current === undefined) {
-      current = { blocks: [] }
+      current = { turn: turns.length + 1, items: [] }
       turns.push(current)
     }
-    current.blocks.push(row.kind === 'assistant.reasoning'
-      ? { type: 'reasoning', text: row.text }
-      : { type: 'text', text: row.text })
+
+    if (row.kind === 'system') {
+      flushAssistant(current)
+      current.items.push({
+        kind: 'header',
+        header: {
+          config: { provider: route?.provider || 'system', model: route?.model || 'default' },
+          system: row.text,
+        },
+      })
+    } else if (row.kind === 'context.inject') {
+      flushAssistant(current)
+      current.items.push({ kind: 'user', user: newInjectedUserMessage(row.text) })
+    } else if (row.kind === 'tool.result') {
+      flushAssistant(current)
+      current.items.push({ kind: 'tool.result', toolResult: newToolResultMessage(row.text) })
+    } else if (row.kind === 'assistant.reasoning') {
+      if (row.text.length > 0) {
+        pendingAssistantBlocks.push({ type: 'reasoning', text: row.text })
+      }
+    } else if (row.kind === 'assistant.response') {
+      if (row.text.length > 0) {
+        pendingAssistantBlocks.push({ type: 'text', text: row.text })
+      }
+    } else if (row.kind === 'tool.call') {
+      pendingAssistantBlocks.push({
+        type: 'tool-call',
+        id: crypto.randomUUID() as CallId,
+        name: 'tool',
+        arguments: row.text || '{}',
+      })
+    }
   }
-  return turns
+
+  if (current !== undefined) {
+    flushAssistant(current)
+  }
+
+  return turns.filter(turn => turn.items.length > 0)
 }
 
-/** Build the assistant message of one composed turn; empty blocks are dropped. */
-function composedAssistantMessage(
-  turn: ComposedTurn,
-  route: { provider: string; model: string } | undefined,
-): AssistantMessage | undefined {
-  const content: ContentBlock[] = turn.blocks
-    .filter(block => block.text.length > 0)
-    .map(block => ({ type: block.type, text: block.text }))
-  if (content.length === 0 || route === undefined) return undefined
-  return Object.freeze({
-    id: crypto.randomUUID(),
-    role: 'assistant' as const,
-    content: Object.freeze(content),
-    source: Object.freeze({
-      kind: 'model' as const,
-      provider: route.provider,
-      model: route.model,
-    }),
-  }) as AssistantMessage
-}
-
-/** Rebuild the whole history from composed rows and branch from it.
- * The composed rows replace the source history entirely (boundary -1); a
- * trailing user row is queued so the new version generates a fresh reply. */
 function forkPlan(
   operation: ForkOperation,
   events: readonly SessionEvent[],
@@ -540,21 +590,10 @@ function forkPlan(
     queuedUsers = [newUserMessage(last.text)]
     seedRows = rows.slice(0, -1)
   }
-  const turns = groupForkRows(seedRows)
-  const needsRoute = turns.some(
-    turn => turn.blocks.some(block => block.text.length > 0),
-  )
-  const route = needsRoute ? modelRoute(events, fallback) : undefined
-  const manualTurns: ManualAssistantTurn[] = []
-  for (const turn of turns) {
-    const assistant = composedAssistantMessage(turn, route)
-    if (turn.user === undefined && assistant === undefined) continue
-    manualTurns.push({
-      turn: manualTurns.length + 1,
-      ...turn.user === undefined ? {} : { user: newUserMessage(turn.user) },
-      ...assistant === undefined ? {} : { assistant },
-    })
-  }
+
+  const route = modelRoute(events, fallback)
+  const manualTurns = groupForkRowsToTurns(seedRows, route)
+
   return {
     boundary: -1,
     version: pairVersionEffect(operation.sessionId, {
@@ -682,20 +721,35 @@ function appendSurfaceSeedEvent<T extends SurfaceEventType>(
   } as SessionEvent<T>)
 }
 
-function appendManualTurn(events: SessionEvent[], manual: ManualAssistantTurn): void {
-  const { turn, user, assistant } = manual
+function appendManualTurn(events: SessionEvent[], manual: ManualTurn): void {
+  const { turn, items } = manual
   appendLogSeedEvent(events, 'turn/start', { turn })
-  if (user !== undefined) appendSurfaceSeedEvent(events, 'user/message', user, { surfaceOp: 'append' })
-  if (assistant === undefined) {
-    appendLogSeedEvent(events, 'turn/end', { turn, reason: { kind: 'completed' } })
-    return
+
+  let step = 1
+  for (const item of items) {
+    if (item.kind === 'header' && item.header !== undefined) {
+      appendLogSeedEvent(events, 'request/header', { header: item.header, reason: 'initial' })
+    } else if (item.kind === 'user' && item.user !== undefined) {
+      appendSurfaceSeedEvent(events, 'user/message', item.user, { surfaceOp: 'append' })
+    } else if (item.kind === 'assistant' && item.assistant !== undefined) {
+      appendLogSeedEvent(events, 'step/start', { turn, step })
+      appendSurfaceSeedEvent(events, 'assistant/message', { turn, step, message: item.assistant }, {
+        surfaceOp: 'append',
+        sourceEventSeqs: [],
+      })
+      appendLogSeedEvent(events, 'step/end', { turn, step })
+      step += 1
+    } else if (item.kind === 'tool.result' && item.toolResult !== undefined) {
+      appendSurfaceSeedEvent(events, 'tool/result', {
+        turn,
+        step: Math.max(1, step - 1),
+        message: item.toolResult,
+      }, {
+        surfaceOp: 'append',
+      })
+    }
   }
-  appendLogSeedEvent(events, 'step/start', { turn, step: 1 })
-  appendSurfaceSeedEvent(events, 'assistant/message', { turn, step: 1, message: assistant }, {
-    surfaceOp: 'append',
-    sourceEventSeqs: [],
-  })
-  appendLogSeedEvent(events, 'step/end', { turn, step: 1 })
+
   appendLogSeedEvent(events, 'turn/end', { turn, reason: { kind: 'completed' } })
 }
 
@@ -720,14 +774,43 @@ function sessionPreset(session: PresetBearingSession): string | undefined {
   return session.header.agentPreset
 }
 
+function resolveSourceTitle(
+  ctx: Context,
+  source: Session,
+  proposedTitle?: string,
+): string | undefined {
+  if (typeof proposedTitle === 'string' && proposedTitle.length > 0) return proposedTitle
+  const titleService = ctx.get('sessionTitle') as { resolve?: (session: Session) => string } | undefined
+  if (titleService?.resolve !== undefined) {
+    try {
+      const resolved = titleService.resolve(source)
+      if (typeof resolved === 'string' && resolved.length > 0) return resolved
+    } catch {
+      // ignore
+    }
+  }
+  for (let index = source.events.length - 1; index >= 0; index -= 1) {
+    const event = source.events[index]
+    if (event?.type === 'session/title' && typeof event.data === 'object' && event.data !== null && 'title' in event.data) {
+      const title = (event.data as { title: unknown }).title
+      if (typeof title === 'string' && title.length > 0) return title
+    }
+  }
+  return undefined
+}
+
 async function createVersionAgent(
   ctx: Context,
   source: Session,
   childId: SessionId,
   plan: OperationPlan,
   options: AgentOptions,
+  title?: string,
 ): Promise<AgentHandle> {
   const seed = versionSeed(source, plan)
+  if (title !== undefined && (plan.boundary === -1 || plan.version.effect.operation === 'fork')) {
+    appendLogSeedEvent(seed.events, 'session/title', { title } as any)
+  }
   const presets = ctx.get('agentPresets')
   const presetId = sessionPreset(source)
   let agentPreset: string | undefined
@@ -750,6 +833,16 @@ async function createVersionAgent(
     ...setup === undefined ? {} : { setup },
   })
   try {
+    if (title !== undefined) {
+      const titleService = ctx.get('sessionTitle') as { rename?: (session: Session, title: string) => void } | undefined
+      if (titleService?.rename !== undefined) {
+        try {
+          titleService.rename(child.agent.session, title)
+        } catch {
+          // ignore
+        }
+      }
+    }
     await ctx.sessions.flush(child.agent.session)
     return child
   } catch (error: unknown) {
@@ -783,9 +876,10 @@ async function runOperation(ctx: Context, operation: MessageEditOperation): Prom
     const inverses: OperationInverse[] = []
     try {
       const events = source.session.events
+      const title = resolveSourceTitle(ctx, source.session, operation.title)
       const plan = planOperation(operation, events, source.options)
       const options = agentOptions(events, source.options, operation.route)
-      const child = await createVersionAgent(ctx, source.session, childId, plan, options)
+      const child = await createVersionAgent(ctx, source.session, childId, plan, options, title)
       inverses.push(() => child.dispose())
 
       const workspace = sourceWorkspace(ctx, sourceId)
@@ -1056,6 +1150,7 @@ function decodeOperation(value: unknown): MessageEditOperation {
   const record = objectValue(value)
   const sessionId = sessionIdOf(record['sessionId'])
   const route = modelRouteOf(record['route'])
+  const title = typeof record['title'] === 'string' && record['title'].length > 0 ? record['title'] : undefined
   switch (record['action']) {
     case 'edit':
       if (typeof record['text'] !== 'string') throw new TypeError('text 必须是字符串。')
@@ -1067,9 +1162,10 @@ function decodeOperation(value: unknown): MessageEditOperation {
         text: record['text'],
         cascade: cascadeOf(record['cascade']),
         ...(route === undefined ? {} : { route }),
+        ...(title === undefined ? {} : { title }),
       }
     case 'reroll':
-      return { action: 'reroll', sessionId, ...(route === undefined ? {} : { route }) }
+      return { action: 'reroll', sessionId, ...(route === undefined ? {} : { route }), ...(title === undefined ? {} : { title }) }
     case 'retry':
       return {
         action: 'retry',
@@ -1077,6 +1173,7 @@ function decodeOperation(value: unknown): MessageEditOperation {
         turn: integerOf(record['turn'], 'turn'),
         cascade: cascadeOf(record['cascade']),
         ...(route === undefined ? {} : { route }),
+        ...(title === undefined ? {} : { title }),
       }
     case 'fork': {
       const rowsValue = record['rows']
@@ -1087,7 +1184,7 @@ function decodeOperation(value: unknown): MessageEditOperation {
         if (typeof item['text'] !== 'string') throw new TypeError(`rows[${index}].text 必须是字符串。`)
         return { kind, text: item['text'] }
       })
-      return { action: 'fork', sessionId, rows, ...(route === undefined ? {} : { route }) }
+      return { action: 'fork', sessionId, rows, ...(route === undefined ? {} : { route }), ...(title === undefined ? {} : { title }) }
     }
     default:
       throw new TypeError('action 必须是 edit、reroll、retry 或 fork。')

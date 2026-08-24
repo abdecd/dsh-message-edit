@@ -59,6 +59,38 @@ function newUserMessage(text) {
 		source: Object.freeze({ kind: "user" })
 	});
 }
+function newInjectedUserMessage(text) {
+	return Object.freeze({
+		id: crypto.randomUUID(),
+		role: "user",
+		content: Object.freeze([{
+			type: "text",
+			text
+		}]),
+		source: Object.freeze({
+			kind: "plugin",
+			plugin: "context-injection"
+		})
+	});
+}
+function newToolResultMessage(text, callId = crypto.randomUUID()) {
+	return Object.freeze({
+		id: crypto.randomUUID(),
+		role: "user",
+		content: Object.freeze([{
+			type: "tool-result",
+			toolCallId: callId,
+			content: [{
+				type: "text",
+				text
+			}]
+		}]),
+		source: Object.freeze({
+			kind: "tool",
+			callId
+		})
+	});
+}
 function replaceTextBlock(content, blockIndex, text) {
 	const block = content[blockIndex];
 	if (!isTextualBlock(block) && block?.type !== "tool-call") throw new Error("所选内容块不是可编辑文本。");
@@ -244,8 +276,13 @@ function editPlan(operation, turns) {
 		}),
 		manualTurns: [{
 			turn: turn.turn,
-			user: cloneUser(turn.user.data),
-			assistant: assistantReplacement(event, operation.blockIndex, operation.text)
+			items: [{
+				kind: "user",
+				user: cloneUser(turn.user.data)
+			}, {
+				kind: "assistant",
+				assistant: assistantReplacement(event, operation.blockIndex, operation.text)
+			}]
 		}],
 		queuedUsers: operation.cascade === "preserve" ? downstreamUsers(turns, turnIndex + 1) : []
 	};
@@ -286,56 +323,94 @@ function rerollPlan(sessionId, turns) {
 	}
 	throw new Error("当前会话没有可重生成的已落定助手回复。");
 }
-/** Fold composed rows into turns; a user row always opens a new turn.
-* A leading assistant row opens a userless turn (a turn without user input).
-* Assistant rows keep their original order, so multi-step turns with several
-* reasoning/text blocks compose back into one ordered assistant message. */
-function groupForkRows(rows) {
+/** Group draft rows into structured manual turns with full Node fidelity. */
+function groupForkRowsToTurns(rows, route) {
 	const turns = [];
 	let current;
+	let pendingAssistantBlocks = [];
+	const flushAssistant = (turn) => {
+		if (pendingAssistantBlocks.length === 0 || route === void 0) return;
+		const msg = Object.freeze({
+			id: crypto.randomUUID(),
+			role: "assistant",
+			content: Object.freeze([...pendingAssistantBlocks]),
+			source: Object.freeze({
+				kind: "model",
+				provider: route.provider,
+				model: route.model
+			})
+		});
+		turn.items.push({
+			kind: "assistant",
+			assistant: msg
+		});
+		pendingAssistantBlocks = [];
+	};
 	for (const row of rows) {
 		if (row.kind === "user") {
-			if (row.text.length === 0) throw new Error("用户消息文本不能为空。");
-			current = { blocks: [] };
-			current.user = row.text;
+			if (current !== void 0) flushAssistant(current);
+			current = {
+				turn: turns.length + 1,
+				items: []
+			};
+			current.items.push({
+				kind: "user",
+				user: newUserMessage(row.text)
+			});
 			turns.push(current);
 			continue;
 		}
 		if (current === void 0) {
-			current = { blocks: [] };
+			current = {
+				turn: turns.length + 1,
+				items: []
+			};
 			turns.push(current);
 		}
-		current.blocks.push(row.kind === "assistant.reasoning" ? {
-			type: "reasoning",
-			text: row.text
-		} : {
-			type: "text",
-			text: row.text
+		if (row.kind === "system") {
+			flushAssistant(current);
+			current.items.push({
+				kind: "header",
+				header: {
+					config: {
+						provider: route?.provider || "system",
+						model: route?.model || "default"
+					},
+					system: row.text
+				}
+			});
+		} else if (row.kind === "context.inject") {
+			flushAssistant(current);
+			current.items.push({
+				kind: "user",
+				user: newInjectedUserMessage(row.text)
+			});
+		} else if (row.kind === "tool.result") {
+			flushAssistant(current);
+			current.items.push({
+				kind: "tool.result",
+				toolResult: newToolResultMessage(row.text)
+			});
+		} else if (row.kind === "assistant.reasoning") {
+			if (row.text.length > 0) pendingAssistantBlocks.push({
+				type: "reasoning",
+				text: row.text
+			});
+		} else if (row.kind === "assistant.response") {
+			if (row.text.length > 0) pendingAssistantBlocks.push({
+				type: "text",
+				text: row.text
+			});
+		} else if (row.kind === "tool.call") pendingAssistantBlocks.push({
+			type: "tool-call",
+			id: crypto.randomUUID(),
+			name: "tool",
+			arguments: row.text || "{}"
 		});
 	}
-	return turns;
+	if (current !== void 0) flushAssistant(current);
+	return turns.filter((turn) => turn.items.length > 0);
 }
-/** Build the assistant message of one composed turn; empty blocks are dropped. */
-function composedAssistantMessage(turn, route) {
-	const content = turn.blocks.filter((block) => block.text.length > 0).map((block) => ({
-		type: block.type,
-		text: block.text
-	}));
-	if (content.length === 0 || route === void 0) return void 0;
-	return Object.freeze({
-		id: crypto.randomUUID(),
-		role: "assistant",
-		content: Object.freeze(content),
-		source: Object.freeze({
-			kind: "model",
-			provider: route.provider,
-			model: route.model
-		})
-	});
-}
-/** Rebuild the whole history from composed rows and branch from it.
-* The composed rows replace the source history entirely (boundary -1); a
-* trailing user row is queued so the new version generates a fresh reply. */
 function forkPlan(operation, events, fallback) {
 	const rows = operation.rows;
 	let queuedUsers = [];
@@ -345,18 +420,8 @@ function forkPlan(operation, events, fallback) {
 		queuedUsers = [newUserMessage(last.text)];
 		seedRows = rows.slice(0, -1);
 	}
-	const turns = groupForkRows(seedRows);
-	const route = turns.some((turn) => turn.blocks.some((block) => block.text.length > 0)) ? modelRoute(events, fallback) : void 0;
-	const manualTurns = [];
-	for (const turn of turns) {
-		const assistant = composedAssistantMessage(turn, route);
-		if (turn.user === void 0 && assistant === void 0) continue;
-		manualTurns.push({
-			turn: manualTurns.length + 1,
-			...turn.user === void 0 ? {} : { user: newUserMessage(turn.user) },
-			...assistant === void 0 ? {} : { assistant }
-		});
-	}
+	const route = modelRoute(events, fallback);
+	const manualTurns = groupForkRowsToTurns(seedRows, route);
 	return {
 		boundary: -1,
 		version: pairVersionEffect(operation.sessionId, {
@@ -441,32 +506,37 @@ function appendSurfaceSeedEvent(events, type, data, intent) {
 	});
 }
 function appendManualTurn(events, manual) {
-	const { turn, user, assistant } = manual;
+	const { turn, items } = manual;
 	appendLogSeedEvent(events, "turn/start", { turn });
-	if (user !== void 0) appendSurfaceSeedEvent(events, "user/message", user, { surfaceOp: "append" });
-	if (assistant === void 0) {
-		appendLogSeedEvent(events, "turn/end", {
+	let step = 1;
+	for (const item of items) if (item.kind === "header" && item.header !== void 0) appendLogSeedEvent(events, "request/header", {
+		header: item.header,
+		reason: "initial"
+	});
+	else if (item.kind === "user" && item.user !== void 0) appendSurfaceSeedEvent(events, "user/message", item.user, { surfaceOp: "append" });
+	else if (item.kind === "assistant" && item.assistant !== void 0) {
+		appendLogSeedEvent(events, "step/start", {
 			turn,
-			reason: { kind: "completed" }
+			step
 		});
-		return;
-	}
-	appendLogSeedEvent(events, "step/start", {
+		appendSurfaceSeedEvent(events, "assistant/message", {
+			turn,
+			step,
+			message: item.assistant
+		}, {
+			surfaceOp: "append",
+			sourceEventSeqs: []
+		});
+		appendLogSeedEvent(events, "step/end", {
+			turn,
+			step
+		});
+		step += 1;
+	} else if (item.kind === "tool.result" && item.toolResult !== void 0) appendSurfaceSeedEvent(events, "tool/result", {
 		turn,
-		step: 1
-	});
-	appendSurfaceSeedEvent(events, "assistant/message", {
-		turn,
-		step: 1,
-		message: assistant
-	}, {
-		surfaceOp: "append",
-		sourceEventSeqs: []
-	});
-	appendLogSeedEvent(events, "step/end", {
-		turn,
-		step: 1
-	});
+		step: Math.max(1, step - 1),
+		message: item.toolResult
+	}, { surfaceOp: "append" });
 	appendLogSeedEvent(events, "turn/end", {
 		turn,
 		reason: { kind: "completed" }
@@ -489,8 +559,24 @@ function sessionPreset(session) {
 	}
 	return session.header.agentPreset;
 }
-async function createVersionAgent(ctx, source, childId, plan, options) {
+function resolveSourceTitle(ctx, source, proposedTitle) {
+	if (typeof proposedTitle === "string" && proposedTitle.length > 0) return proposedTitle;
+	const titleService = ctx.get("sessionTitle");
+	if (titleService?.resolve !== void 0) try {
+		const resolved = titleService.resolve(source);
+		if (typeof resolved === "string" && resolved.length > 0) return resolved;
+	} catch {}
+	for (let index = source.events.length - 1; index >= 0; index -= 1) {
+		const event = source.events[index];
+		if (event?.type === "session/title" && typeof event.data === "object" && event.data !== null && "title" in event.data) {
+			const title = event.data.title;
+			if (typeof title === "string" && title.length > 0) return title;
+		}
+	}
+}
+async function createVersionAgent(ctx, source, childId, plan, options, title) {
 	const seed = versionSeed(source, plan);
+	if (title !== void 0 && (plan.boundary === -1 || plan.version.effect.operation === "fork")) appendLogSeedEvent(seed.events, "session/title", { title });
 	const presets = ctx.get("agentPresets");
 	const presetId = sessionPreset(source);
 	let agentPreset;
@@ -515,6 +601,12 @@ async function createVersionAgent(ctx, source, childId, plan, options) {
 		...setup === void 0 ? {} : { setup }
 	});
 	try {
+		if (title !== void 0) {
+			const titleService = ctx.get("sessionTitle");
+			if (titleService?.rename !== void 0) try {
+				titleService.rename(child.agent.session, title);
+			} catch {}
+		}
 		await ctx.sessions.flush(child.agent.session);
 		return child;
 	} catch (error) {
@@ -541,9 +633,10 @@ async function runOperation(ctx, operation) {
 		const inverses = [];
 		try {
 			const events = source.session.events;
+			const title = resolveSourceTitle(ctx, source.session, operation.title);
 			const plan = planOperation(operation, events, source.options);
 			const options = agentOptions(events, source.options, operation.route);
-			const child = await createVersionAgent(ctx, source.session, childId, plan, options);
+			const child = await createVersionAgent(ctx, source.session, childId, plan, options, title);
 			inverses.push(() => child.dispose());
 			const workspace = sourceWorkspace(ctx, sourceId);
 			if (workspace !== void 0) {
@@ -763,6 +856,7 @@ function decodeOperation(value) {
 	const record = objectValue(value);
 	const sessionId = sessionIdOf(record["sessionId"]);
 	const route = modelRouteOf(record["route"]);
+	const title = typeof record["title"] === "string" && record["title"].length > 0 ? record["title"] : void 0;
 	switch (record["action"]) {
 		case "edit":
 			if (typeof record["text"] !== "string") throw new TypeError("text 必须是字符串。");
@@ -773,19 +867,22 @@ function decodeOperation(value) {
 				blockIndex: integerOf(record["blockIndex"], "blockIndex"),
 				text: record["text"],
 				cascade: cascadeOf(record["cascade"]),
-				...route === void 0 ? {} : { route }
+				...route === void 0 ? {} : { route },
+				...title === void 0 ? {} : { title }
 			};
 		case "reroll": return {
 			action: "reroll",
 			sessionId,
-			...route === void 0 ? {} : { route }
+			...route === void 0 ? {} : { route },
+			...title === void 0 ? {} : { title }
 		};
 		case "retry": return {
 			action: "retry",
 			sessionId,
 			turn: integerOf(record["turn"], "turn"),
 			cascade: cascadeOf(record["cascade"]),
-			...route === void 0 ? {} : { route }
+			...route === void 0 ? {} : { route },
+			...title === void 0 ? {} : { title }
 		};
 		case "fork": {
 			const rowsValue = record["rows"];
@@ -802,7 +899,8 @@ function decodeOperation(value) {
 						text: item["text"]
 					};
 				}),
-				...route === void 0 ? {} : { route }
+				...route === void 0 ? {} : { route },
+				...title === void 0 ? {} : { title }
 			};
 		}
 		default: throw new TypeError("action 必须是 edit、reroll、retry 或 fork。");

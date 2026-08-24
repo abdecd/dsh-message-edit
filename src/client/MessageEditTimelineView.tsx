@@ -394,6 +394,7 @@ export function MessageEditTimelineView({
       ? current
       : { signature, rows: baselineRows })
     setHistory([])
+    setCollapsedSectionIds(new Set(baselineRows.map(r => r.turn !== undefined ? `turn-${String(r.turn)}` : `added-${r.key}`)))
   }, [signature, baselineRows])
 
   const rows = draft?.rows ?? baselineRows
@@ -791,17 +792,29 @@ export function MessageEditTimelineView({
     setDraft({ signature, rows: baselineRows })
   }
 
-  const forkRows = (): { kind: EditableBlockKind; text: string }[] =>
-    rows.map(row => ({ kind: row.kind, text: row.text }))
+  const hasSelection = selectedKeys.size > 0
+  const activeRows = useMemo(() => {
+    if (!hasSelection) return rows
+    return rows.filter(r => selectedKeys.has(r.key))
+  }, [rows, selectedKeys, hasSelection])
 
-  const lastRow = rows[rows.length - 1]
+  const forkRows = (): { kind: EditableBlockKind; text: string }[] =>
+    activeRows.map(row => ({ kind: row.kind, text: row.text }))
+
+  const lastActiveRow = activeRows[activeRows.length - 1]
   const forkLabel = state.pending === 'fork'
     ? '正在 Fork…'
-    : lastRow === undefined
-      ? 'Fork 空白历史'
-      : lastRow.kind === 'user'
-        ? 'Fork 生成回复'
-        : 'Fork（不生成回复）'
+    : hasSelection
+      ? lastActiveRow === undefined
+        ? 'Fork 选中消息 (0)'
+        : lastActiveRow.kind === 'user'
+          ? `Fork 选中项并回复 (${selectedKeys.size})`
+          : `Fork 选中项 (${selectedKeys.size})`
+      : lastActiveRow === undefined
+        ? 'Fork 空白历史'
+        : lastActiveRow.kind === 'user'
+          ? 'Fork 生成回复'
+          : 'Fork（不生成回复）'
 
   if (timeline === null || state.status === 'error') {
     return (
@@ -846,8 +859,8 @@ export function MessageEditTimelineView({
           <button
             type="button"
             className={styles['primaryButton']}
-            disabled={busy || editing !== null || !changes.hasChanges}
-            title="按右列当前内容重建消息历史并生成新版本；结尾的用户消息会触发新的助手回复"
+            disabled={busy || editing !== null || (!changes.hasChanges && !hasSelection)}
+            title={hasSelection ? '基于当前选中的消息列表重建新版本历史' : '按右列当前内容重建消息历史并生成新版本；结尾的用户消息会触发新的助手回复'}
             onClick={() => { void fork(forkRows()) }}
           >
             {forkLabel}
