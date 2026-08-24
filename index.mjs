@@ -99,12 +99,16 @@ function replaceTextBlock(content, blockIndex, text) {
 		text
 	} : structuredClone(candidate));
 }
-/** Fold complete turn brackets; an open tail is deliberately absent. */
-function closedTurns(events) {
+/** Fold turn brackets; open tails are included so generated nodes appear immediately. */
+function closedTurns(events, includeOpen = true) {
 	const result = [];
 	let current;
 	for (const event of events) {
 		if (event.type === "turn/start") {
+			if (includeOpen && current !== void 0) result.push({
+				...current,
+				endSeq: event.seq - 1
+			});
 			current = {
 				turn: event.data.turn,
 				startSeq: event.seq,
@@ -113,18 +117,26 @@ function closedTurns(events) {
 			};
 			continue;
 		}
-		if (current === void 0) continue;
+		if (current === void 0) {
+			if (event.type === "user/message" || event.type === "assistant/message" || event.type === "tool/result" || event.type === "request/header") current = {
+				turn: typeof event.data?.turn === "number" ? event.data.turn : 1,
+				startSeq: event.seq,
+				assistants: [],
+				events: []
+			};
+			else continue;
+		}
 		if (event.type === "user/message") {
 			if (event.data.source.kind === "user" && current.user === void 0) current.user = event;
 			current.events.push(event);
 			continue;
 		}
-		if (event.type === "assistant/message" && event.data.turn === current.turn) {
+		if (event.type === "assistant/message" && (event.data.turn === void 0 || event.data.turn === current.turn)) {
 			current.assistants.push(event);
 			current.events.push(event);
 			continue;
 		}
-		if (event.type === "tool/result" && event.data.turn === current.turn) {
+		if (event.type === "tool/result" && (event.data.turn === void 0 || event.data.turn === current.turn)) {
 			current.events.push(event);
 			continue;
 		}
@@ -132,7 +144,7 @@ function closedTurns(events) {
 			current.events.push(event);
 			continue;
 		}
-		if (event.type === "turn/end" && event.data.turn === current.turn) {
+		if (event.type === "turn/end" && (event.data.turn === void 0 || event.data.turn === current.turn)) {
 			result.push({
 				...current,
 				endSeq: event.seq
@@ -140,6 +152,10 @@ function closedTurns(events) {
 			current = void 0;
 		}
 	}
+	if (includeOpen && current !== void 0) result.push({
+		...current,
+		endSeq: Number.POSITIVE_INFINITY
+	});
 	return result;
 }
 function formatToolResultText(event) {

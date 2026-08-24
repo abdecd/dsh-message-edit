@@ -33,8 +33,8 @@ export interface MessageEditState {
   timeline: MessageEditTimeline | null
 }
 
-/** Merge a burst of turn completions into one refresh. */
-const REFRESH_DELAY_MS = 300
+/** Merge a burst of turn completions / node events into one refresh. */
+const REFRESH_DELAY_MS = 150
 
 /** Plain business face; the renderer binds the reserved source compartment. */
 export interface MessageEditFace {
@@ -225,7 +225,17 @@ function conversationRevision(snapshot: ConversationSnapshot): string {
   const turnEnds = [...snapshot.turnEnds.entries()]
     .map(([turn, seq]) => `${String(turn)}:${String(seq)}`)
     .join(',')
-  return [snapshot.openState, snapshot.removed, snapshot.hasMore, turnEnds].join('|')
+  const nodeKeys = snapshot.nodes
+    .map(node => `${node.kind}:${String(node.seq)}`)
+    .join(',')
+  return [
+    snapshot.openState,
+    snapshot.removed,
+    snapshot.hasMore,
+    snapshot.running ? '1' : '0',
+    turnEnds,
+    nodeKeys,
+  ].join('|')
 }
 
 function lineageRevision(snapshot: SessionListState, sessionId: SessionId): string {

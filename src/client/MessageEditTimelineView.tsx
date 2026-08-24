@@ -1,6 +1,6 @@
 /** Timeline tab: durable version tree plus free CRUD over finalized messages,
  * committed as a forked version that regenerates replies. */
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
@@ -399,14 +399,19 @@ export function MessageEditTimelineView({
       : `${timeline.sessionId}|${timeline.messages.map(message => message.key).join(',')}`,
     [timeline],
   )
+  const lastSessionIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     setDraft(current => current?.signature === signature
       ? current
       : { signature, rows: baselineRows })
     setHistory([])
-    setCollapsedSectionIds(new Set(baselineRows.map(r => r.turn !== undefined ? `turn-${String(r.turn)}` : `added-${r.key}`)))
-  }, [signature, baselineRows])
+    const sessionChanged = lastSessionIdRef.current !== timeline?.sessionId
+    lastSessionIdRef.current = timeline?.sessionId ?? null
+    if (sessionChanged) {
+      setCollapsedSectionIds(new Set(baselineRows.map(r => r.turn !== undefined ? `turn-${String(r.turn)}` : `added-${r.key}`)))
+    }
+  }, [signature, baselineRows, timeline?.sessionId])
 
   const rows = draft?.rows ?? baselineRows
 

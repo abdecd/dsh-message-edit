@@ -237,12 +237,15 @@ function replaceTextBlock(content: readonly ContentBlock[], blockIndex: number, 
     : structuredClone(candidate))
 }
 
-/** Fold complete turn brackets; an open tail is deliberately absent. */
-function closedTurns(events: readonly SessionEvent[]): ClosedTurn[] {
+/** Fold turn brackets; open tails are included so generated nodes appear immediately. */
+function closedTurns(events: readonly SessionEvent[], includeOpen = true): ClosedTurn[] {
   const result: ClosedTurn[] = []
   let current: Omit<ClosedTurn, 'endSeq'> | undefined
   for (const event of events) {
     if (event.type === 'turn/start') {
+      if (includeOpen && current !== undefined) {
+        result.push({ ...current, endSeq: event.seq - 1 })
+      }
       current = {
         turn: event.data.turn,
         startSeq: event.seq,
@@ -251,7 +254,26 @@ function closedTurns(events: readonly SessionEvent[]): ClosedTurn[] {
       }
       continue
     }
-    if (current === undefined) continue
+    if (current === undefined) {
+      if (
+        event.type === 'user/message' ||
+        event.type === 'assistant/message' ||
+        event.type === 'tool/result' ||
+        event.type === 'request/header'
+      ) {
+        const turnNum = typeof (event.data as { turn?: unknown })?.turn === 'number'
+          ? (event.data as { turn: number }).turn
+          : 1
+        current = {
+          turn: turnNum,
+          startSeq: event.seq,
+          assistants: [],
+          events: [],
+        }
+      } else {
+        continue
+      }
+    }
     if (event.type === 'user/message') {
       if (event.data.source.kind === 'user' && current.user === undefined) {
         current.user = event
@@ -259,12 +281,12 @@ function closedTurns(events: readonly SessionEvent[]): ClosedTurn[] {
       current.events.push(event)
       continue
     }
-    if (event.type === 'assistant/message' && event.data.turn === current.turn) {
+    if (event.type === 'assistant/message' && (event.data.turn === undefined || event.data.turn === current.turn)) {
       current.assistants.push(event)
       current.events.push(event)
       continue
     }
-    if (event.type === 'tool/result' && event.data.turn === current.turn) {
+    if (event.type === 'tool/result' && (event.data.turn === undefined || event.data.turn === current.turn)) {
       current.events.push(event)
       continue
     }
@@ -272,10 +294,13 @@ function closedTurns(events: readonly SessionEvent[]): ClosedTurn[] {
       current.events.push(event)
       continue
     }
-    if (event.type === 'turn/end' && event.data.turn === current.turn) {
+    if (event.type === 'turn/end' && (event.data.turn === undefined || event.data.turn === current.turn)) {
       result.push({ ...current, endSeq: event.seq })
       current = undefined
     }
+  }
+  if (includeOpen && current !== undefined) {
+    result.push({ ...current, endSeq: Number.POSITIVE_INFINITY })
   }
   return result
 }

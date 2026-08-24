@@ -12,8 +12,8 @@ window.__ModuleLoader__.load({
 		const MESSAGE_EDIT_PATH = "/message-edit";
 		//#endregion
 		//#region src/client/controller.ts
-		/** Merge a burst of turn completions into one refresh. */
-		const REFRESH_DELAY_MS = 300;
+		/** Merge a burst of turn completions / node events into one refresh. */
+		const REFRESH_DELAY_MS = 150;
 		function messageOf(error) {
 			return error instanceof Error ? error.message : String(error);
 		}
@@ -122,11 +122,14 @@ window.__ModuleLoader__.load({
 		}
 		function conversationRevision(snapshot) {
 			const turnEnds = [...snapshot.turnEnds.entries()].map(([turn, seq]) => `${String(turn)}:${String(seq)}`).join(",");
+			const nodeKeys = snapshot.nodes.map((node) => `${node.kind}:${String(node.seq)}`).join(",");
 			return [
 				snapshot.openState,
 				snapshot.removed,
 				snapshot.hasMore,
-				turnEnds
+				snapshot.running ? "1" : "0",
+				turnEnds,
+				nodeKeys
 			].join("|");
 		}
 		function lineageRevision(snapshot, sessionId) {
@@ -464,15 +467,15 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var InlineMessageEdit_module_css_default = {
-			"pickerItem": "Ps3QDa_pickerItem",
-			"pickerItemActive": "Ps3QDa_pickerItemActive",
-			"panel": "Ps3QDa_panel",
-			"footer": "Ps3QDa_footer",
-			"overlay": "Ps3QDa_overlay",
 			"picker": "Ps3QDa_picker",
-			"iconButton": "Ps3QDa_iconButton",
 			"title": "Ps3QDa_title",
-			"input": "Ps3QDa_input"
+			"overlay": "Ps3QDa_overlay",
+			"iconButton": "Ps3QDa_iconButton",
+			"input": "Ps3QDa_input",
+			"footer": "Ps3QDa_footer",
+			"panel": "Ps3QDa_panel",
+			"pickerItemActive": "Ps3QDa_pickerItemActive",
+			"pickerItem": "Ps3QDa_pickerItem"
 		};
 		//#endregion
 		//#region src/client/InlineMessageEdit.tsx
@@ -847,71 +850,71 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var MessageEditTimelineView_module_css_default = {
-			"turnTitle": "hbVeaa_turnTitle",
+			"columns": "hbVeaa_columns",
+			"batchActions": "hbVeaa_batchActions",
+			"newBadge": "hbVeaa_newBadge",
 			"versionButton": "hbVeaa_versionButton",
 			"status": "hbVeaa_status",
-			"sectionHeading": "hbVeaa_sectionHeading",
-			"count": "hbVeaa_count",
-			"checkbox": "hbVeaa_checkbox",
-			"empty": "hbVeaa_empty",
-			"versionList": "hbVeaa_versionList",
-			"headerActions": "hbVeaa_headerActions",
-			"kindBadge": "hbVeaa_kindBadge",
-			"messageCard": "hbVeaa_messageCard",
-			"pathBadge": "hbVeaa_pathBadge",
-			"batchActions": "hbVeaa_batchActions",
-			"editedBadge": "hbVeaa_editedBadge",
-			"emptyState": "hbVeaa_emptyState",
-			"collapseTurnButton": "hbVeaa_collapseTurnButton",
-			"versionMain": "hbVeaa_versionMain",
-			"changeSummary": "hbVeaa_changeSummary",
-			"effectDepth": "hbVeaa_effectDepth",
-			"turnList": "hbVeaa_turnList",
-			"messageTextWrapper": "hbVeaa_messageTextWrapper",
-			"newBadge": "hbVeaa_newBadge",
-			"turnActions": "hbVeaa_turnActions",
-			"pageHeader": "hbVeaa_pageHeader",
-			"effectControls": "hbVeaa_effectControls",
-			"primaryButton": "hbVeaa_primaryButton",
-			"dragHandle": "hbVeaa_dragHandle",
-			"intro": "hbVeaa_intro",
-			"textButton": "hbVeaa_textButton",
-			"composerFooter": "hbVeaa_composerFooter",
-			"error": "hbVeaa_error",
-			"title": "hbVeaa_title",
-			"turnHeader": "hbVeaa_turnHeader",
-			"turnSection": "hbVeaa_turnSection",
-			"columns": "hbVeaa_columns",
-			"versionItem": "hbVeaa_versionItem",
-			"effectButtons": "hbVeaa_effectButtons",
-			"versionLine": "hbVeaa_versionLine",
-			"editorActions": "hbVeaa_editorActions",
-			"messageHeader": "hbVeaa_messageHeader",
-			"select": "hbVeaa_select",
-			"turnHeaderLeft": "hbVeaa_turnHeaderLeft",
-			"turnPreview": "hbVeaa_turnPreview",
-			"versionsPanel": "hbVeaa_versionsPanel",
-			"editor": "hbVeaa_editor",
-			"messageList": "hbVeaa_messageList",
-			"textarea": "hbVeaa_textarea",
-			"messageSpacer": "hbVeaa_messageSpacer",
-			"secondaryButton": "hbVeaa_secondaryButton",
-			"versionDiff": "hbVeaa_versionDiff",
-			"expandButton": "hbVeaa_expandButton",
-			"subtitle": "hbVeaa_subtitle",
-			"messageTime": "hbVeaa_messageTime",
-			"root": "hbVeaa_root",
-			"versionDot": "hbVeaa_versionDot",
-			"currentBadge": "hbVeaa_currentBadge",
 			"messageText": "hbVeaa_messageText",
-			"cascadeField": "hbVeaa_cascadeField",
-			"editorHint": "hbVeaa_editorHint",
-			"messageTextCollapsed": "hbVeaa_messageTextCollapsed",
-			"versionTitle": "hbVeaa_versionTitle",
-			"versionMeta": "hbVeaa_versionMeta",
+			"title": "hbVeaa_title",
+			"versionsPanel": "hbVeaa_versionsPanel",
+			"messageHeader": "hbVeaa_messageHeader",
+			"changeSummary": "hbVeaa_changeSummary",
+			"pageHeader": "hbVeaa_pageHeader",
+			"secondaryButton": "hbVeaa_secondaryButton",
+			"turnList": "hbVeaa_turnList",
+			"versionLine": "hbVeaa_versionLine",
+			"versionMain": "hbVeaa_versionMain",
+			"currentBadge": "hbVeaa_currentBadge",
+			"count": "hbVeaa_count",
+			"emptyState": "hbVeaa_emptyState",
+			"turnHeaderLeft": "hbVeaa_turnHeaderLeft",
+			"textarea": "hbVeaa_textarea",
 			"turnsPanel": "hbVeaa_turnsPanel",
+			"expandButton": "hbVeaa_expandButton",
+			"editor": "hbVeaa_editor",
+			"empty": "hbVeaa_empty",
+			"versionMeta": "hbVeaa_versionMeta",
+			"editorActions": "hbVeaa_editorActions",
+			"turnHeader": "hbVeaa_turnHeader",
+			"versionItem": "hbVeaa_versionItem",
+			"messageList": "hbVeaa_messageList",
+			"editorHint": "hbVeaa_editorHint",
+			"turnTitle": "hbVeaa_turnTitle",
+			"turnSection": "hbVeaa_turnSection",
+			"versionDot": "hbVeaa_versionDot",
+			"cascadeField": "hbVeaa_cascadeField",
+			"changeChip": "hbVeaa_changeChip",
+			"collapseTurnButton": "hbVeaa_collapseTurnButton",
+			"effectControls": "hbVeaa_effectControls",
+			"headerActions": "hbVeaa_headerActions",
+			"versionList": "hbVeaa_versionList",
+			"messageTextWrapper": "hbVeaa_messageTextWrapper",
+			"subtitle": "hbVeaa_subtitle",
+			"textButton": "hbVeaa_textButton",
+			"versionDiff": "hbVeaa_versionDiff",
+			"error": "hbVeaa_error",
+			"turnActions": "hbVeaa_turnActions",
+			"messageTextCollapsed": "hbVeaa_messageTextCollapsed",
+			"composerFooter": "hbVeaa_composerFooter",
+			"messageTime": "hbVeaa_messageTime",
+			"versionTitle": "hbVeaa_versionTitle",
+			"dragHandle": "hbVeaa_dragHandle",
+			"effectButtons": "hbVeaa_effectButtons",
+			"messageSpacer": "hbVeaa_messageSpacer",
+			"effectDepth": "hbVeaa_effectDepth",
+			"turnPreview": "hbVeaa_turnPreview",
+			"select": "hbVeaa_select",
+			"checkbox": "hbVeaa_checkbox",
+			"messageCard": "hbVeaa_messageCard",
 			"notice": "hbVeaa_notice",
-			"changeChip": "hbVeaa_changeChip"
+			"intro": "hbVeaa_intro",
+			"primaryButton": "hbVeaa_primaryButton",
+			"kindBadge": "hbVeaa_kindBadge",
+			"editedBadge": "hbVeaa_editedBadge",
+			"root": "hbVeaa_root",
+			"sectionHeading": "hbVeaa_sectionHeading",
+			"pathBadge": "hbVeaa_pathBadge"
 		};
 		//#endregion
 		//#region src/client/MessageEditTimelineView.tsx
@@ -1209,14 +1212,21 @@ window.__ModuleLoader__.load({
 			/** Identity of the loaded history; a change means the user switched versions
 			* or new turns finalized, so the local draft re-syncs from the baseline. */
 			const signature = (0, react.useMemo)(() => timeline === null ? "" : `${timeline.sessionId}|${timeline.messages.map((message) => message.key).join(",")}`, [timeline]);
+			const lastSessionIdRef = (0, react.useRef)(null);
 			(0, react.useEffect)(() => {
 				setDraft((current) => current?.signature === signature ? current : {
 					signature,
 					rows: baselineRows
 				});
 				setHistory([]);
-				setCollapsedSectionIds(new Set(baselineRows.map((r) => r.turn !== void 0 ? `turn-${String(r.turn)}` : `added-${r.key}`)));
-			}, [signature, baselineRows]);
+				const sessionChanged = lastSessionIdRef.current !== timeline?.sessionId;
+				lastSessionIdRef.current = timeline?.sessionId ?? null;
+				if (sessionChanged) setCollapsedSectionIds(new Set(baselineRows.map((r) => r.turn !== void 0 ? `turn-${String(r.turn)}` : `added-${r.key}`)));
+			}, [
+				signature,
+				baselineRows,
+				timeline?.sessionId
+			]);
 			const rows = draft?.rows ?? baselineRows;
 			const updateDraftRows = (nextRows) => {
 				setHistory((prev) => [...prev.slice(-30), rows]);
