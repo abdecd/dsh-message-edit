@@ -7,6 +7,7 @@ import type {
   CascadePolicy,
   EditableBlockKind,
   EditableMessageBlock,
+  ForkMessageRow,
   RetryableTurn,
   VersionOperation,
   VersionSummary,
@@ -23,6 +24,10 @@ interface DraftRow {
   text: string
   turn?: number
   added: boolean
+  toolName?: string
+  callId?: string
+  sourceEventSeq?: number
+  sourceBlockIndex?: number
 }
 
 /** A contiguous group of draft rows: one user row (or a userless turn) plus replies. */
@@ -215,12 +220,14 @@ function MessageCard({
   const active = editing?.key === row.key
   const edited = !row.added && baseline !== undefined && baseline.text !== row.text
 
-  const badgeLabel = BLOCK_LABEL[row.kind] || row.kind
+  const badgeLabel = row.kind === 'tool.call' && row.toolName
+    ? `工具调用: ${row.toolName}`
+    : BLOCK_LABEL[row.kind] || row.kind
   const kindDataAttr = row.kind.replace('.', '-')
 
-  // Default collapse all multi-line items or long responses, tool calls, tool results, and system prompts
+  // Default collapse all multi-line items (all message kinds exceeding 1 line / 70 chars)
   const isMultiLine = row.text.includes('\n') || row.text.length > 70
-  const defaultCollapsed = isMultiLine && row.kind !== 'assistant.reasoning'
+  const defaultCollapsed = isMultiLine
   const [expanded, setExpanded] = useState<boolean>(!defaultCollapsed)
 
   return (
@@ -377,6 +384,10 @@ export function MessageEditTimelineView({
       text: message.text,
       turn: message.turn,
       added: false,
+      ...message.toolName !== undefined ? { toolName: message.toolName } : {},
+      ...message.callId !== undefined ? { callId: message.callId } : {},
+      sourceEventSeq: message.eventSeq,
+      sourceBlockIndex: message.blockIndex,
     })),
     [timeline],
   )
@@ -798,8 +809,15 @@ export function MessageEditTimelineView({
     return rows.filter(r => selectedKeys.has(r.key))
   }, [rows, selectedKeys, hasSelection])
 
-  const forkRows = (): { kind: EditableBlockKind; text: string }[] =>
-    activeRows.map(row => ({ kind: row.kind, text: row.text }))
+  const forkRows = (): ForkMessageRow[] =>
+    activeRows.map(row => ({
+      kind: row.kind,
+      text: row.text,
+      ...row.toolName ? { toolName: row.toolName } : {},
+      ...row.callId ? { callId: row.callId } : {},
+      ...row.sourceEventSeq !== undefined ? { sourceEventSeq: row.sourceEventSeq } : {},
+      ...row.sourceBlockIndex !== undefined ? { sourceBlockIndex: row.sourceBlockIndex } : {},
+    }))
 
   const lastActiveRow = activeRows[activeRows.length - 1]
   const forkLabel = state.pending === 'fork'

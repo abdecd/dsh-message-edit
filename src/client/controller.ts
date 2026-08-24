@@ -131,6 +131,8 @@ function decodeMessage(value: unknown, index: number): EditableMessageBlock {
     kind: blockKind(row['kind']),
     text: stringValue(row['text'], '消息 text'),
     time: numberValue(row['time'], '消息 time'),
+    ...typeof row['toolName'] === 'string' ? { toolName: row['toolName'] } : {},
+    ...typeof row['callId'] === 'string' ? { callId: row['callId'] } : {},
   }
 }
 

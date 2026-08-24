@@ -46,7 +46,9 @@ window.__ModuleLoader__.load({
 				blockIndex: numberValue(row["blockIndex"], "消息 blockIndex"),
 				kind: blockKind(row["kind"]),
 				text: stringValue(row["text"], "消息 text"),
-				time: numberValue(row["time"], "消息 time")
+				time: numberValue(row["time"], "消息 time"),
+				...typeof row["toolName"] === "string" ? { toolName: row["toolName"] } : {},
+				...typeof row["callId"] === "string" ? { callId: row["callId"] } : {}
 			};
 		}
 		function decodeRetryable(value, index) {
@@ -462,15 +464,15 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var InlineMessageEdit_module_css_default = {
-			"panel": "Ps3QDa_panel",
-			"iconButton": "Ps3QDa_iconButton",
-			"footer": "Ps3QDa_footer",
-			"picker": "Ps3QDa_picker",
 			"pickerItem": "Ps3QDa_pickerItem",
 			"pickerItemActive": "Ps3QDa_pickerItemActive",
-			"input": "Ps3QDa_input",
+			"panel": "Ps3QDa_panel",
+			"footer": "Ps3QDa_footer",
+			"overlay": "Ps3QDa_overlay",
+			"picker": "Ps3QDa_picker",
+			"iconButton": "Ps3QDa_iconButton",
 			"title": "Ps3QDa_title",
-			"overlay": "Ps3QDa_overlay"
+			"input": "Ps3QDa_input"
 		};
 		//#endregion
 		//#region src/client/InlineMessageEdit.tsx
@@ -767,10 +769,10 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var MessageEditHeader_module_css_default = {
+			"rerollButton": "ovpcJa_rerollButton",
 			"iconButton": "ovpcJa_iconButton",
 			"counter": "ovpcJa_counter",
-			"root": "ovpcJa_root",
-			"rerollButton": "ovpcJa_rerollButton"
+			"root": "ovpcJa_root"
 		};
 		//#endregion
 		//#region src/client/MessageEditHeader.tsx
@@ -845,71 +847,71 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var MessageEditTimelineView_module_css_default = {
-			"collapseTurnButton": "hbVeaa_collapseTurnButton",
-			"headerActions": "hbVeaa_headerActions",
-			"turnActions": "hbVeaa_turnActions",
-			"dragHandle": "hbVeaa_dragHandle",
-			"currentBadge": "hbVeaa_currentBadge",
-			"editedBadge": "hbVeaa_editedBadge",
-			"composerFooter": "hbVeaa_composerFooter",
-			"emptyState": "hbVeaa_emptyState",
-			"versionLine": "hbVeaa_versionLine",
-			"textarea": "hbVeaa_textarea",
-			"versionButton": "hbVeaa_versionButton",
-			"title": "hbVeaa_title",
-			"turnHeaderLeft": "hbVeaa_turnHeaderLeft",
-			"messageText": "hbVeaa_messageText",
-			"effectControls": "hbVeaa_effectControls",
-			"turnPreview": "hbVeaa_turnPreview",
-			"select": "hbVeaa_select",
-			"error": "hbVeaa_error",
-			"cascadeField": "hbVeaa_cascadeField",
-			"count": "hbVeaa_count",
-			"messageSpacer": "hbVeaa_messageSpacer",
-			"pathBadge": "hbVeaa_pathBadge",
-			"turnHeader": "hbVeaa_turnHeader",
-			"messageTextCollapsed": "hbVeaa_messageTextCollapsed",
-			"editorHint": "hbVeaa_editorHint",
-			"expandButton": "hbVeaa_expandButton",
-			"primaryButton": "hbVeaa_primaryButton",
-			"versionTitle": "hbVeaa_versionTitle",
-			"effectButtons": "hbVeaa_effectButtons",
-			"intro": "hbVeaa_intro",
-			"newBadge": "hbVeaa_newBadge",
-			"editorActions": "hbVeaa_editorActions",
-			"batchActions": "hbVeaa_batchActions",
-			"messageList": "hbVeaa_messageList",
-			"subtitle": "hbVeaa_subtitle",
-			"changeChip": "hbVeaa_changeChip",
-			"messageHeader": "hbVeaa_messageHeader",
-			"sectionHeading": "hbVeaa_sectionHeading",
-			"turnList": "hbVeaa_turnList",
-			"messageTime": "hbVeaa_messageTime",
-			"changeSummary": "hbVeaa_changeSummary",
-			"versionMain": "hbVeaa_versionMain",
-			"pageHeader": "hbVeaa_pageHeader",
-			"columns": "hbVeaa_columns",
-			"empty": "hbVeaa_empty",
-			"secondaryButton": "hbVeaa_secondaryButton",
-			"messageTextWrapper": "hbVeaa_messageTextWrapper",
-			"turnsPanel": "hbVeaa_turnsPanel",
-			"checkbox": "hbVeaa_checkbox",
-			"textButton": "hbVeaa_textButton",
-			"effectDepth": "hbVeaa_effectDepth",
-			"versionList": "hbVeaa_versionList",
 			"turnTitle": "hbVeaa_turnTitle",
-			"versionMeta": "hbVeaa_versionMeta",
-			"versionDiff": "hbVeaa_versionDiff",
+			"versionButton": "hbVeaa_versionButton",
+			"status": "hbVeaa_status",
+			"sectionHeading": "hbVeaa_sectionHeading",
+			"count": "hbVeaa_count",
+			"checkbox": "hbVeaa_checkbox",
+			"empty": "hbVeaa_empty",
+			"versionList": "hbVeaa_versionList",
+			"headerActions": "hbVeaa_headerActions",
 			"kindBadge": "hbVeaa_kindBadge",
-			"notice": "hbVeaa_notice",
-			"editor": "hbVeaa_editor",
 			"messageCard": "hbVeaa_messageCard",
-			"root": "hbVeaa_root",
+			"pathBadge": "hbVeaa_pathBadge",
+			"batchActions": "hbVeaa_batchActions",
+			"editedBadge": "hbVeaa_editedBadge",
+			"emptyState": "hbVeaa_emptyState",
+			"collapseTurnButton": "hbVeaa_collapseTurnButton",
+			"versionMain": "hbVeaa_versionMain",
+			"changeSummary": "hbVeaa_changeSummary",
+			"effectDepth": "hbVeaa_effectDepth",
+			"turnList": "hbVeaa_turnList",
+			"messageTextWrapper": "hbVeaa_messageTextWrapper",
+			"newBadge": "hbVeaa_newBadge",
+			"turnActions": "hbVeaa_turnActions",
+			"pageHeader": "hbVeaa_pageHeader",
+			"effectControls": "hbVeaa_effectControls",
+			"primaryButton": "hbVeaa_primaryButton",
+			"dragHandle": "hbVeaa_dragHandle",
+			"intro": "hbVeaa_intro",
+			"textButton": "hbVeaa_textButton",
+			"composerFooter": "hbVeaa_composerFooter",
+			"error": "hbVeaa_error",
+			"title": "hbVeaa_title",
+			"turnHeader": "hbVeaa_turnHeader",
 			"turnSection": "hbVeaa_turnSection",
+			"columns": "hbVeaa_columns",
 			"versionItem": "hbVeaa_versionItem",
-			"versionDot": "hbVeaa_versionDot",
+			"effectButtons": "hbVeaa_effectButtons",
+			"versionLine": "hbVeaa_versionLine",
+			"editorActions": "hbVeaa_editorActions",
+			"messageHeader": "hbVeaa_messageHeader",
+			"select": "hbVeaa_select",
+			"turnHeaderLeft": "hbVeaa_turnHeaderLeft",
+			"turnPreview": "hbVeaa_turnPreview",
 			"versionsPanel": "hbVeaa_versionsPanel",
-			"status": "hbVeaa_status"
+			"editor": "hbVeaa_editor",
+			"messageList": "hbVeaa_messageList",
+			"textarea": "hbVeaa_textarea",
+			"messageSpacer": "hbVeaa_messageSpacer",
+			"secondaryButton": "hbVeaa_secondaryButton",
+			"versionDiff": "hbVeaa_versionDiff",
+			"expandButton": "hbVeaa_expandButton",
+			"subtitle": "hbVeaa_subtitle",
+			"messageTime": "hbVeaa_messageTime",
+			"root": "hbVeaa_root",
+			"versionDot": "hbVeaa_versionDot",
+			"currentBadge": "hbVeaa_currentBadge",
+			"messageText": "hbVeaa_messageText",
+			"cascadeField": "hbVeaa_cascadeField",
+			"editorHint": "hbVeaa_editorHint",
+			"messageTextCollapsed": "hbVeaa_messageTextCollapsed",
+			"versionTitle": "hbVeaa_versionTitle",
+			"versionMeta": "hbVeaa_versionMeta",
+			"turnsPanel": "hbVeaa_turnsPanel",
+			"notice": "hbVeaa_notice",
+			"changeChip": "hbVeaa_changeChip"
 		};
 		//#endregion
 		//#region src/client/MessageEditTimelineView.tsx
@@ -1046,11 +1048,10 @@ window.__ModuleLoader__.load({
 		function MessageCard({ row, baseline, editing, selected, disabled, isDragging, dragOverPosition, onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop, onSelectToggle, onBeginEdit, onCancelEdit, onTextChange, onApplyEdit, onDelete }) {
 			const active = editing?.key === row.key;
 			const edited = !row.added && baseline !== void 0 && baseline.text !== row.text;
-			const badgeLabel = BLOCK_LABEL[row.kind] || row.kind;
+			const badgeLabel = row.kind === "tool.call" && row.toolName ? `工具调用: ${row.toolName}` : BLOCK_LABEL[row.kind] || row.kind;
 			const kindDataAttr = row.kind.replace(".", "-");
 			const isMultiLine = row.text.includes("\n") || row.text.length > 70;
-			const defaultCollapsed = isMultiLine && row.kind !== "assistant.reasoning";
-			const [expanded, setExpanded] = (0, react.useState)(!defaultCollapsed);
+			const [expanded, setExpanded] = (0, react.useState)(!isMultiLine);
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("article", {
 				className: MessageEditTimelineView_module_css_default["messageCard"],
 				"data-kind": kindDataAttr,
@@ -1199,7 +1200,11 @@ window.__ModuleLoader__.load({
 				kind: message.kind,
 				text: message.text,
 				turn: message.turn,
-				added: false
+				added: false,
+				...message.toolName !== void 0 ? { toolName: message.toolName } : {},
+				...message.callId !== void 0 ? { callId: message.callId } : {},
+				sourceEventSeq: message.eventSeq,
+				sourceBlockIndex: message.blockIndex
 			})), [timeline]);
 			/** Identity of the loaded history; a change means the user switched versions
 			* or new turns finalized, so the local draft re-syncs from the baseline. */
@@ -1547,7 +1552,11 @@ window.__ModuleLoader__.load({
 			]);
 			const forkRows = () => activeRows.map((row) => ({
 				kind: row.kind,
-				text: row.text
+				text: row.text,
+				...row.toolName ? { toolName: row.toolName } : {},
+				...row.callId ? { callId: row.callId } : {},
+				...row.sourceEventSeq !== void 0 ? { sourceEventSeq: row.sourceEventSeq } : {},
+				...row.sourceBlockIndex !== void 0 ? { sourceBlockIndex: row.sourceBlockIndex } : {}
 			}));
 			const lastActiveRow = activeRows[activeRows.length - 1];
 			const forkLabel = state.pending === "fork" ? "正在 Fork…" : hasSelection ? lastActiveRow === void 0 ? "Fork 选中消息 (0)" : lastActiveRow.kind === "user" ? `Fork 选中项并回复 (${selectedKeys.size})` : `Fork 选中项 (${selectedKeys.size})` : lastActiveRow === void 0 ? "Fork 空白历史" : lastActiveRow.kind === "user" ? "Fork 生成回复" : "Fork（不生成回复）";

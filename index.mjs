@@ -193,7 +193,9 @@ function editableMessages(turns) {
 			blockIndex,
 			kind: "tool.call",
 			text: block.arguments || "{}",
-			time: event.time
+			time: event.time,
+			toolName: block.name,
+			callId: block.id
 		});
 	} else if (event.type === "tool/result") result.push({
 		key: `${String(event.seq)}:res`,
@@ -202,7 +204,8 @@ function editableMessages(turns) {
 		blockIndex: 0,
 		kind: "tool.result",
 		text: formatToolResultText(event),
-		time: event.time
+		time: event.time,
+		callId: event.data.message.source.callId
 	});
 	return result;
 }
@@ -323,28 +326,199 @@ function rerollPlan(sessionId, turns) {
 	}
 	throw new Error("当前会话没有可重生成的已落定助手回复。");
 }
-/** Group draft rows into structured manual turns with full Node fidelity. */
-function groupForkRowsToTurns(rows, route) {
+/** Resolve client provenance only against the source session named by the operation. */
+function sourceEvent(row, events) {
+	if (row.sourceEventSeq === void 0) return void 0;
+	const event = events[row.sourceEventSeq];
+	if (event === void 0 || event.seq !== row.sourceEventSeq) throw new Error(`Fork 行引用的源事件 ${row.sourceEventSeq} 不存在。`);
+	return event;
+}
+function sourceUserMessage(row, events, expectedSource) {
+	const event = sourceEvent(row, events);
+	if (event === void 0) return void 0;
+	if (event.type !== "user/message" || event.data.source.kind !== expectedSource) throw new Error(`Fork 行 ${row.sourceEventSeq} 的来源不是预期的用户消息。`);
+	const index = row.sourceBlockIndex;
+	const block = index === void 0 ? void 0 : event.data.content[index];
+	if (block?.type !== "text") throw new Error("Fork 行引用的用户文本块不存在。");
+	if (block.text === row.text) return event.data;
+	return {
+		...event.data,
+		content: event.data.content.map((candidate, at) => at === index ? {
+			...candidate,
+			text: row.text
+		} : candidate)
+	};
+}
+function sourceHeader(row, events) {
+	const event = sourceEvent(row, events);
+	if (event === void 0) return void 0;
+	if (event.type !== "request/header") throw new Error("Fork 行引用的来源不是 request/header。");
+	if (event.data.header.system === row.text) return event.data.header;
+	return {
+		...event.data.header,
+		system: row.text
+	};
+}
+function sourceToolResult(row, events) {
+	const event = sourceEvent(row, events);
+	if (event === void 0) return void 0;
+	if (event.type !== "tool/result") throw new Error("Fork 行引用的来源不是 tool/result。");
+	const original = event.data.message;
+	if (formatToolResultText(event) === row.text) return {
+		toolResult: original,
+		...event.data.error === void 0 ? {} : { toolResultError: event.data.error },
+		...event.data.meta === void 0 ? {} : { toolResultMeta: event.data.meta }
+	};
+	const result = original.content[0];
+	let replaced = false;
+	const content = result.content.flatMap((block) => {
+		if (block.type !== "text") return [block];
+		if (replaced) return [];
+		replaced = true;
+		return [{
+			...block,
+			text: row.text
+		}];
+	});
+	if (!replaced) content.unshift({
+		type: "text",
+		text: row.text
+	});
+	return {
+		toolResult: {
+			...original,
+			content: [{
+				...result,
+				content
+			}]
+		},
+		...event.data.error === void 0 ? {} : { toolResultError: event.data.error },
+		...event.data.meta === void 0 ? {} : { toolResultMeta: event.data.meta }
+	};
+}
+/** Recover the model-side call head when a result is selected without its call
+* row, or when reading a branch produced by the older mismatched-ID Fork code. */
+function fallbackAssistantForToolResult(row, events, route) {
+	const resultEvent = sourceEvent(row, events);
+	const result = resultEvent?.type === "tool/result" ? resultEvent : void 0;
+	const callId = result?.data.message.source.callId ?? row.callId;
+	if (callId === void 0) return void 0;
+	let exactBlock;
+	let nearbyBlock;
+	let modelSource;
+	let callEvent;
+	const limit = result?.seq ?? Number.POSITIVE_INFINITY;
+	for (const event of events) {
+		if (event.seq >= limit) break;
+		if (event.type === "tool/call" && event.data.callId === callId) callEvent = event;
+		if (event.type !== "assistant/message") continue;
+		for (const block of event.data.message.content) {
+			if (block.type !== "tool-call") continue;
+			if (block.id === callId) {
+				exactBlock = block;
+				modelSource = event.data.message.source;
+			} else if (result !== void 0 && event.data.turn === result.data.turn && event.data.step === result.data.step) {
+				nearbyBlock = block;
+				modelSource = event.data.message.source;
+			}
+		}
+	}
+	const template = exactBlock ?? nearbyBlock;
+	const call = template === void 0 ? {
+		type: "tool-call",
+		id: callId,
+		name: callEvent?.data.name ?? row.toolName ?? "tool",
+		arguments: callEvent?.data.arguments ?? "{}"
+	} : {
+		...template,
+		id: callId
+	};
+	return {
+		id: crypto.randomUUID(),
+		role: "assistant",
+		content: [call],
+		source: modelSource ?? {
+			kind: "model",
+			provider: route.provider,
+			model: route.model
+		}
+	};
+}
+/** Group draft rows into structured manual turns while cloning complete source
+* messages for unchanged/provenanced rows. New rows alone use text reconstruction. */
+function groupForkRowsToTurns(rows, route, events) {
 	const turns = [];
 	let current;
-	let pendingAssistantBlocks = [];
+	let pendingAssistantRows = [];
 	const flushAssistant = (turn) => {
-		if (pendingAssistantBlocks.length === 0 || route === void 0) return;
-		const msg = Object.freeze({
-			id: crypto.randomUUID(),
-			role: "assistant",
-			content: Object.freeze([...pendingAssistantBlocks]),
-			source: Object.freeze({
-				kind: "model",
-				provider: route.provider,
-				model: route.model
-			})
+		if (pendingAssistantRows.length === 0) return;
+		const sourceSeq = pendingAssistantRows[0]?.sourceEventSeq;
+		const source = sourceSeq === void 0 ? void 0 : sourceEvent(pendingAssistantRows[0], events);
+		if (source !== void 0 && pendingAssistantRows.every((row) => row.sourceEventSeq === sourceSeq) && source?.type === "assistant/message") {
+			const editable = source.data.message.content.map((block, index) => ({
+				block,
+				index
+			})).filter(({ block }) => block.type === "text" || block.type === "reasoning" || block.type === "tool-call");
+			if (editable.length === pendingAssistantRows.length && editable.every(({ index }, at) => pendingAssistantRows[at]?.sourceBlockIndex === index)) {
+				const replacements = new Map(pendingAssistantRows.map((row) => [row.sourceBlockIndex, row]));
+				const content = source.data.message.content.map((block, index) => {
+					const row = replacements.get(index);
+					if (row === void 0) return block;
+					if (block.type === "text" || block.type === "reasoning") return block.text === row.text ? block : {
+						...block,
+						text: row.text
+					};
+					if (block.type === "tool-call") return block.arguments === row.text ? block : {
+						...block,
+						arguments: row.text
+					};
+					return block;
+				});
+				const unchanged = content.every((block, index) => block === source.data.message.content[index]);
+				turn.items.push({
+					kind: "assistant",
+					assistant: unchanged ? source.data.message : {
+						...source.data.message,
+						content
+					},
+					...source.data.usage === void 0 ? {} : { assistantUsage: source.data.usage },
+					...source.data.interrupted === void 0 ? {} : { assistantInterrupted: source.data.interrupted }
+				});
+				pendingAssistantRows = [];
+				return;
+			}
+		}
+		const content = pendingAssistantRows.flatMap((row) => {
+			if (row.kind === "assistant.reasoning") return row.text.length === 0 ? [] : [{
+				type: "reasoning",
+				text: row.text
+			}];
+			if (row.kind === "assistant.response") return row.text.length === 0 ? [] : [{
+				type: "text",
+				text: row.text
+			}];
+			if (row.kind === "tool.call") return [{
+				type: "tool-call",
+				id: row.callId || crypto.randomUUID(),
+				name: row.toolName || "tool",
+				arguments: row.text || "{}"
+			}];
+			return [];
 		});
-		turn.items.push({
+		if (content.length > 0) turn.items.push({
 			kind: "assistant",
-			assistant: msg
+			assistant: {
+				id: crypto.randomUUID(),
+				role: "assistant",
+				content,
+				source: {
+					kind: "model",
+					provider: route.provider,
+					model: route.model
+				}
+			}
 		});
-		pendingAssistantBlocks = [];
+		pendingAssistantRows = [];
 	};
 	for (const row of rows) {
 		if (row.kind === "user") {
@@ -355,7 +529,7 @@ function groupForkRowsToTurns(rows, route) {
 			};
 			current.items.push({
 				kind: "user",
-				user: newUserMessage(row.text)
+				user: sourceUserMessage(row, events, "user") ?? newUserMessage(row.text)
 			});
 			turns.push(current);
 			continue;
@@ -367,14 +541,18 @@ function groupForkRowsToTurns(rows, route) {
 			};
 			turns.push(current);
 		}
-		if (row.kind === "system") {
+		if (row.kind === "assistant.reasoning" || row.kind === "assistant.response" || row.kind === "tool.call") {
+			const pendingSource = pendingAssistantRows[0]?.sourceEventSeq;
+			if (pendingAssistantRows.length > 0 && pendingSource !== row.sourceEventSeq) flushAssistant(current);
+			pendingAssistantRows.push(row);
+		} else if (row.kind === "system") {
 			flushAssistant(current);
 			current.items.push({
 				kind: "header",
-				header: {
+				header: sourceHeader(row, events) ?? {
 					config: {
-						provider: route?.provider || "system",
-						model: route?.model || "default"
+						provider: route.provider,
+						model: route.model
 					},
 					system: row.text
 				}
@@ -383,30 +561,34 @@ function groupForkRowsToTurns(rows, route) {
 			flushAssistant(current);
 			current.items.push({
 				kind: "user",
-				user: newInjectedUserMessage(row.text)
+				user: sourceUserMessage(row, events, "plugin") ?? newInjectedUserMessage(row.text)
 			});
 		} else if (row.kind === "tool.result") {
 			flushAssistant(current);
+			const cloned = sourceToolResult(row, events);
+			const toolResult = cloned?.toolResult ?? newToolResultMessage(row.text, row.callId);
+			const fallbackAssistant = fallbackAssistantForToolResult(row, events, route) ?? {
+				id: crypto.randomUUID(),
+				role: "assistant",
+				content: [{
+					type: "tool-call",
+					id: toolResult.source.callId,
+					name: row.toolName || "tool",
+					arguments: "{}"
+				}],
+				source: {
+					kind: "model",
+					provider: route.provider,
+					model: route.model
+				}
+			};
 			current.items.push({
 				kind: "tool.result",
-				toolResult: newToolResultMessage(row.text)
+				...cloned ?? {},
+				toolResult,
+				toolResultFallbackAssistant: fallbackAssistant
 			});
-		} else if (row.kind === "assistant.reasoning") {
-			if (row.text.length > 0) pendingAssistantBlocks.push({
-				type: "reasoning",
-				text: row.text
-			});
-		} else if (row.kind === "assistant.response") {
-			if (row.text.length > 0) pendingAssistantBlocks.push({
-				type: "text",
-				text: row.text
-			});
-		} else if (row.kind === "tool.call") pendingAssistantBlocks.push({
-			type: "tool-call",
-			id: crypto.randomUUID(),
-			name: "tool",
-			arguments: row.text || "{}"
-		});
+		}
 	}
 	if (current !== void 0) flushAssistant(current);
 	return turns.filter((turn) => turn.items.length > 0);
@@ -417,11 +599,11 @@ function forkPlan(operation, events, fallback) {
 	let seedRows = rows;
 	const last = rows[rows.length - 1];
 	if (last !== void 0 && last.kind === "user") {
-		queuedUsers = [newUserMessage(last.text)];
+		queuedUsers = [sourceUserMessage(last, events, "user") ?? newUserMessage(last.text)];
 		seedRows = rows.slice(0, -1);
 	}
 	const route = modelRoute(events, fallback);
-	const manualTurns = groupForkRowsToTurns(seedRows, route);
+	const manualTurns = groupForkRowsToTurns(seedRows, route, events);
 	return {
 		boundary: -1,
 		version: pairVersionEffect(operation.sessionId, {
@@ -509,34 +691,92 @@ function appendManualTurn(events, manual) {
 	const { turn, items } = manual;
 	appendLogSeedEvent(events, "turn/start", { turn });
 	let step = 1;
-	for (const item of items) if (item.kind === "header" && item.header !== void 0) appendLogSeedEvent(events, "request/header", {
-		header: item.header,
-		reason: "initial"
-	});
-	else if (item.kind === "user" && item.user !== void 0) appendSurfaceSeedEvent(events, "user/message", item.user, { surfaceOp: "append" });
-	else if (item.kind === "assistant" && item.assistant !== void 0) {
-		appendLogSeedEvent(events, "step/start", {
-			turn,
-			step
-		});
-		appendSurfaceSeedEvent(events, "assistant/message", {
-			turn,
-			step,
-			message: item.assistant
-		}, {
-			surfaceOp: "append",
-			sourceEventSeqs: []
-		});
+	let stepOpen = false;
+	const pendingCalls = /* @__PURE__ */ new Set();
+	const closeStep = () => {
+		if (!stepOpen) return;
 		appendLogSeedEvent(events, "step/end", {
 			turn,
 			step
 		});
 		step += 1;
-	} else if (item.kind === "tool.result" && item.toolResult !== void 0) appendSurfaceSeedEvent(events, "tool/result", {
-		turn,
-		step: Math.max(1, step - 1),
-		message: item.toolResult
-	}, { surfaceOp: "append" });
+		stepOpen = false;
+		pendingCalls.clear();
+	};
+	const openAssistantStep = (assistant, usage, interrupted) => {
+		closeStep();
+		appendLogSeedEvent(events, "step/start", {
+			turn,
+			step
+		});
+		stepOpen = true;
+		appendSurfaceSeedEvent(events, "assistant/message", {
+			turn,
+			step,
+			message: assistant,
+			...usage === void 0 ? {} : { usage },
+			...interrupted === void 0 ? {} : { interrupted }
+		}, {
+			surfaceOp: "append",
+			sourceEventSeqs: []
+		});
+		for (const block of assistant.content) {
+			if (block.type !== "tool-call") continue;
+			appendLogSeedEvent(events, "tool/call", {
+				turn,
+				step,
+				callId: block.id,
+				name: block.name,
+				arguments: block.arguments
+			});
+			pendingCalls.add(block.id);
+		}
+		if (pendingCalls.size === 0) closeStep();
+	};
+	for (const item of items) if (item.kind === "header" && item.header !== void 0) {
+		closeStep();
+		appendLogSeedEvent(events, "request/header", {
+			header: item.header,
+			reason: "initial"
+		});
+	} else if (item.kind === "user" && item.user !== void 0) {
+		closeStep();
+		appendSurfaceSeedEvent(events, "user/message", item.user, { surfaceOp: "append" });
+	} else if (item.kind === "assistant" && item.assistant !== void 0) openAssistantStep(item.assistant, item.assistantUsage, item.assistantInterrupted);
+	else if (item.kind === "tool.result" && item.toolResult !== void 0) {
+		let toolResult = item.toolResult;
+		let callId = toolResult.source.callId;
+		if (stepOpen && !pendingCalls.has(callId) && pendingCalls.size > 0) {
+			const inferred = pendingCalls.values().next().value;
+			if (inferred !== void 0) {
+				const block = toolResult.content[0];
+				callId = inferred;
+				toolResult = {
+					...toolResult,
+					source: {
+						...toolResult.source,
+						callId
+					},
+					content: [{
+						...block,
+						toolCallId: callId
+					}]
+				};
+			}
+		}
+		if (!stepOpen || !pendingCalls.has(callId)) openAssistantStep(item.toolResultFallbackAssistant);
+		if (!stepOpen || !pendingCalls.has(callId)) throw new Error(`无法为工具结果 ${callId} 恢复对应的工具调用。`);
+		appendSurfaceSeedEvent(events, "tool/result", {
+			turn,
+			step,
+			message: toolResult,
+			...item.toolResultError === void 0 ? {} : { error: item.toolResultError },
+			...item.toolResultMeta === void 0 ? {} : { meta: item.toolResultMeta }
+		}, { surfaceOp: "append" });
+		pendingCalls.delete(callId);
+		if (pendingCalls.size === 0) closeStep();
+	}
+	closeStep();
 	appendLogSeedEvent(events, "turn/end", {
 		turn,
 		reason: { kind: "completed" }
@@ -894,9 +1134,17 @@ function decodeOperation(value) {
 					const item = objectValue(row);
 					const kind = blockKindOf(item["kind"], `rows[${index}].kind`);
 					if (typeof item["text"] !== "string") throw new TypeError(`rows[${index}].text 必须是字符串。`);
+					const toolName = typeof item["toolName"] === "string" ? item["toolName"] : void 0;
+					const callId = typeof item["callId"] === "string" ? item["callId"] : void 0;
+					const sourceEventSeq = item["sourceEventSeq"] === void 0 ? void 0 : integerOf(item["sourceEventSeq"], `rows[${index}].sourceEventSeq`);
+					const sourceBlockIndex = item["sourceBlockIndex"] === void 0 ? void 0 : integerOf(item["sourceBlockIndex"], `rows[${index}].sourceBlockIndex`);
 					return {
 						kind,
-						text: item["text"]
+						text: item["text"],
+						...toolName ? { toolName } : {},
+						...callId ? { callId } : {},
+						...sourceEventSeq === void 0 ? {} : { sourceEventSeq },
+						...sourceBlockIndex === void 0 ? {} : { sourceBlockIndex }
 					};
 				}),
 				...route === void 0 ? {} : { route },

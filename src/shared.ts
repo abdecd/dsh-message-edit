@@ -76,6 +76,8 @@ export interface EditableMessageBlock {
   kind: EditableBlockKind
   text: string
   time: number
+  toolName?: string
+  callId?: string
 }
 
 /** One completed message-triggered turn eligible for Retry. */
@@ -159,6 +161,12 @@ export interface RetryOperation {
 export interface ForkMessageRow {
   kind: EditableBlockKind
   text: string
+  toolName?: string
+  callId?: string
+  /** Provenance of an original Timeline row. The host uses it to clone the
+   * complete source message/event instead of rebuilding an unchanged row from text. */
+  sourceEventSeq?: number
+  sourceBlockIndex?: number
 }
 
 /** Rebuild the whole message history from composed rows and branch from it.
