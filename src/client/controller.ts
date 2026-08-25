@@ -45,8 +45,9 @@ export interface MessageEditFace {
   retry(turn: number, cascade: CascadePolicy): Promise<boolean>
   reroll(): Promise<boolean>
   /** Rebuild the whole history from composed rows and branch from it.
-   * A trailing user row is queued so the new version generates a reply. */
-  fork(rows: ForkMessageRow[]): Promise<boolean>
+   * A trailing user row is queued so the new version generates a reply.
+   * An optional workspace id places the child in that workspace. */
+  fork(rows: ForkMessageRow[], workspaceId?: string): Promise<boolean>
   openVersion(sessionId: string): Promise<void>
 }
 
@@ -78,6 +79,12 @@ interface ConnectionModelsApi {
 
 interface ConnectionHandleLike {
   readonly api: ConnectionModelsApi
+}
+
+/** The concrete WorkspaceRuntime exposes a baseline refresh although the
+ * feature-facing IWorkspaces contract intentionally keeps writes narrow. */
+interface WorkspaceRuntimeLike {
+  refresh?: () => Promise<void>
 }
 
 function messageOf(error: unknown): string {
@@ -322,10 +329,18 @@ export class MessageEditController {
         cascade,
       }),
       reroll: () => this.mutate({ action: 'reroll', sessionId: this.sessionId }),
-      fork: rows => this.mutate({
+      fork: (rows, workspaceId) => this.mutate({
         action: 'fork',
         sessionId: this.sessionId,
-        rows: rows.map(row => ({ kind: row.kind, text: row.text })),
+        rows: rows.map(row => ({
+          kind: row.kind,
+          text: row.text,
+          ...row.toolName === undefined ? {} : { toolName: row.toolName },
+          ...row.callId === undefined ? {} : { callId: row.callId },
+          ...row.sourceEventSeq === undefined ? {} : { sourceEventSeq: row.sourceEventSeq },
+          ...row.sourceBlockIndex === undefined ? {} : { sourceBlockIndex: row.sourceBlockIndex },
+        })),
+        ...workspaceId === undefined ? {} : { workspaceId },
       }),
       openVersion: sessionId => this.openWhenListed(sessionId as SessionId),
     }
@@ -528,6 +543,13 @@ export class MessageEditController {
       })
       const result = decodeOperationResult(await responseValue(response))
       if (this.disposed) return true
+      if (operation.action === 'fork' && operation.workspaceId !== undefined) {
+        try {
+          await (this.ctx.get('workspaces') as WorkspaceRuntimeLike | undefined)?.refresh?.()
+        } catch {
+          // The host operation already succeeded; a stream refresh can retry later.
+        }
+      }
       this.store.update((state) => { state.pending = null })
       await this.openWhenListed(result.sessionId as SessionId)
       return true

@@ -15,7 +15,7 @@ dsh plugin --profile web add dsh-message-edit
 - **编辑消息**：可编辑已落定的用户文本、`assistant.reasoning` 思考块与 `assistant.response` 回复文本。
 - **重生成**：从最后一条已落定助手回复所属回合之前分支，使用原用户输入重新生成。
 - **重试任意回合**：在 Timeline 中选择任意历史回合重新执行。
-- **自由 CRUD + Fork**：在 Timeline 右列对已落定消息随意增、删、改，草稿实时显示「新增 · 编辑 · 删除」计数并可一键重置；点击 **Fork** 按草稿内容重建消息历史并生成新版本。以用户消息结尾时，该消息作为新提示排入新会话并生成新的助手回复；以助手消息结尾或历史为空时只创建分支、不生成回复。
+- **自由 CRUD + Fork**：在 Timeline 右列对已落定消息随意增、删、改，草稿实时显示「新增 · 编辑 · 删除」计数并可一键重置；点击 **Fork** 按草稿内容重建消息历史并生成新版本。以用户消息结尾时，该消息作为新提示排入新会话并生成新的助手回复；以助手消息结尾或历史为空时只创建分支、不生成回复。Fork 顶部可选择目标工作区；不选择时沿用源会话工作区。
 - **级联策略**：
   - `truncate`（默认）：只重新执行目标输入，删除该点之后的旧后续。
   - `preserve`：保留后续用户输入，并在新分支中依次重新执行；助手输出与工具链全部重新生成。
@@ -126,7 +126,7 @@ dsh plugin --profile web add -w link:/path/to/dsh-message-edit
 ## HTTP 接口
 
 - `GET /message-edit?sessionId=<id>`：读取可编辑消息、可重试回合与完整版本树。
-- `POST /message-edit`：执行 `edit`、`reroll`、`retry` 或 `fork`，返回已发布的新 Session ID。`fork` 的 `rows` 为有序的消息行（`kind` 为 `user` / `assistant.reasoning` / `assistant.response`，`text` 为文本），按行重建整个历史；以 `user` 行结尾时触发新回复。
+- `POST /message-edit`：执行 `edit`、`reroll`、`retry` 或 `fork`，返回已发布的新 Session ID。`fork` 的 `rows` 为有序的消息行（`kind` 为 `user` / `assistant.reasoning` / `assistant.response`，`text` 为文本），按行重建整个历史；以 `user` 行结尾时触发新回复。可选 `workspaceId` 将新版本的工作目录与会话挂接到指定工作区；省略时沿用源会话工作区。
 
 ## 范围边界
 

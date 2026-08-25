@@ -171,11 +171,13 @@ export interface ForkMessageRow {
 
 /** Rebuild the whole message history from composed rows and branch from it.
  * A trailing user row is excluded from the seed and queued so the new
- * version generates a fresh reply to it. */
+ * version generates a fresh reply to it. `workspaceId` moves the child to an
+ * explicit workspace; when omitted, the source session's workspace is kept. */
 export interface ForkOperation {
   action: 'fork'
   sessionId: string
   rows: ForkMessageRow[]
+  workspaceId?: string
   route?: ModelRoute
   title?: string
 }

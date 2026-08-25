@@ -25,7 +25,7 @@ import type {
   ToolResultMessage,
   UserMessage,
 } from '@deepseek-ai/dsh-llm'
-import type { Workspace } from '@deepseek-ai/dsh-workspace'
+import type { Workspace, WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import {
   MESSAGE_EDIT_PATH,
   MESSAGE_EDIT_VERSION_SCHEMA,
@@ -943,7 +943,11 @@ function appendSurfaceSeedEvent<T extends SurfaceEventType>(
   } as SessionEvent<T>)
 }
 
-function appendManualTurn(events: SessionEvent[], manual: ManualTurn): void {
+function appendManualTurn(
+  events: SessionEvent[],
+  manual: ManualTurn,
+  emittedCallIds: Set<string>,
+): void {
   const { turn, items } = manual
   appendLogSeedEvent(events, 'turn/start', { turn })
 
@@ -980,13 +984,16 @@ function appendManualTurn(events: SessionEvent[], manual: ManualTurn): void {
 
     for (const block of assistant.content) {
       if (block.type !== 'tool-call') continue
-      appendLogSeedEvent(events, 'tool/call', {
-        turn,
-        step,
-        callId: block.id,
-        name: block.name,
-        arguments: block.arguments,
-      })
+      if (!emittedCallIds.has(block.id)) {
+        appendLogSeedEvent(events, 'tool/call', {
+          turn,
+          step,
+          callId: block.id,
+          name: block.name,
+          arguments: block.arguments,
+        })
+        emittedCallIds.add(block.id)
+      }
       pendingCalls.add(block.id)
     }
 
@@ -1022,7 +1029,15 @@ function appendManualTurn(events: SessionEvent[], manual: ManualTurn): void {
       }
 
       if (!stepOpen || !pendingCalls.has(callId)) {
-        openAssistantStep(item.toolResultFallbackAssistant!)
+        if (!emittedCallIds.has(callId) && item.toolResultFallbackAssistant !== undefined) {
+          openAssistantStep(item.toolResultFallbackAssistant)
+        } else {
+          if (!stepOpen) {
+            appendLogSeedEvent(events, 'step/start', { turn, step })
+            stepOpen = true
+          }
+          pendingCalls.add(callId)
+        }
       }
       if (!stepOpen || !pendingCalls.has(callId)) {
         throw new Error(`无法为工具结果 ${callId} 恢复对应的工具调用。`)
@@ -1051,10 +1066,16 @@ function versionSeed(source: Session, plan: OperationPlan): {
 } {
   const events = inheritedSeed(source, plan.boundary)
   const inheritedLength = events.length
+  const emittedCallIds = new Set<string>()
+  for (const event of events) {
+    if (event.type === 'tool/call' && typeof (event.data as any)?.callId === 'string') {
+      emittedCallIds.add((event.data as any).callId)
+    }
+  }
   /* Marked ignorable: harness builds without this plugin must be able to skip the
      provenance record instead of refusing the whole log (SessionEvent.ignorable). */
   appendLogSeedEvent(events, 'message-edit/version', plan.version, true)
-  for (const manual of plan.manualTurns) appendManualTurn(events, manual)
+  for (const manual of plan.manualTurns) appendManualTurn(events, manual, emittedCallIds)
   return { events, inheritedLength }
 }
 
@@ -1098,6 +1119,7 @@ async function createVersionAgent(
   plan: OperationPlan,
   options: AgentOptions,
   title?: string,
+  cwd?: string,
 ): Promise<AgentHandle> {
   const seed = versionSeed(source, plan)
   if (title !== undefined && (plan.boundary === -1 || plan.version.effect.operation === 'fork')) {
@@ -1112,11 +1134,12 @@ async function createVersionAgent(
     agentPreset = resolved
     setup = async (agentCtx) => { await presets.mount(agentCtx, resolved) }
   }
+  const childCwd = cwd ?? source.header.cwd
   const child = await ctx.agents.create({
     sessionId: childId,
     seed: seed.events,
     meta: {
-      ...source.header.cwd === undefined ? {} : { cwd: source.header.cwd },
+      ...childCwd === undefined ? {} : { cwd: childCwd },
       parentSession: source.id,
       seedLength: seed.inheritedLength,
       ...agentPreset === undefined ? {} : { agentPreset },
@@ -1147,6 +1170,19 @@ function sourceWorkspace(ctx: Context, sessionId: SessionId): Workspace | undefi
   return ctx.workspaceRegistry.list().find(workspace => workspace.sessionIds.includes(sessionId))
 }
 
+function operationWorkspace(
+  ctx: Context,
+  sourceId: SessionId,
+  operation: MessageEditOperation,
+): Workspace | undefined {
+  if (operation.action === 'fork' && operation.workspaceId !== undefined) {
+    const workspace = ctx.workspaceRegistry.get(operation.workspaceId as WorkspaceId)
+    if (workspace === undefined) throw new Error('目标工作区不存在。')
+    return workspace
+  }
+  return sourceWorkspace(ctx, sourceId)
+}
+
 type OperationInverse = () => void | Promise<void>
 
 async function recoverOperation(inverses: OperationInverse[]): Promise<void> {
@@ -1169,15 +1205,25 @@ async function runOperation(ctx: Context, operation: MessageEditOperation): Prom
     try {
       const events = source.session.events
       const title = resolveSourceTitle(ctx, source.session, operation.title)
+      const workspace = operationWorkspace(ctx, sourceId, operation)
+      const targetCwd = operation.action === 'fork' && operation.workspaceId !== undefined
+        ? workspace?.path
+        : undefined
       const plan = planOperation(operation, events, source.options)
       const options = agentOptions(events, source.options, operation.route)
-      const child = await createVersionAgent(ctx, source.session, childId, plan, options, title)
+      const child = await createVersionAgent(ctx, source.session, childId, plan, options, title, targetCwd)
       inverses.push(() => child.dispose())
 
-      const workspace = sourceWorkspace(ctx, sourceId)
       if (workspace !== undefined) {
         await workspace.attachSession(childId)
         inverses.push(() => workspace.detachSession(childId))
+        if (operation.action === 'fork' && operation.workspaceId !== undefined) {
+          for (const candidate of ctx.workspaceRegistry.list()) {
+            if (candidate.id === workspace.id || !candidate.sessionIds.includes(childId)) continue
+            await candidate.detachSession(childId)
+            inverses.push(() => candidate.attachSession(childId))
+          }
+        }
       }
       for (const message of plan.queuedUsers) child.agent.followup(message)
 
@@ -1402,6 +1448,12 @@ function sessionIdOf(value: unknown): SessionId {
   return value as SessionId
 }
 
+function optionalWorkspaceIdOf(value: unknown): string | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string' || value.length === 0) throw new TypeError('workspaceId 必须是非空字符串。')
+  return value
+}
+
 function integerOf(value: unknown, name: string): number {
   if (!Number.isSafeInteger(value) || (value as number) < 0) {
     throw new TypeError(`${name} 必须是非负安全整数。`)
@@ -1468,6 +1520,7 @@ function decodeOperation(value: unknown): MessageEditOperation {
         ...(title === undefined ? {} : { title }),
       }
     case 'fork': {
+      const workspaceId = optionalWorkspaceIdOf(record['workspaceId'])
       const rowsValue = record['rows']
       if (!Array.isArray(rowsValue)) throw new TypeError('rows 必须是数组。')
       const rows = rowsValue.map((row, index) => {
@@ -1491,7 +1544,14 @@ function decodeOperation(value: unknown): MessageEditOperation {
           ...sourceBlockIndex === undefined ? {} : { sourceBlockIndex },
         }
       })
-      return { action: 'fork', sessionId, rows, ...(route === undefined ? {} : { route }), ...(title === undefined ? {} : { title }) }
+      return {
+        action: 'fork',
+        sessionId,
+        rows,
+        ...(workspaceId === undefined ? {} : { workspaceId }),
+        ...(route === undefined ? {} : { route }),
+        ...(title === undefined ? {} : { title }),
+      }
     }
     default:
       throw new TypeError('action 必须是 edit、reroll、retry 或 fork。')

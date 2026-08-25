@@ -353,9 +353,13 @@ export function MessageEditTimelineView({
   reroll,
   fork,
   openVersion,
+  sessionId,
+  useWorkspaces,
 }: MessageEditTimelineViewProps): ReactNode {
   const state = useMessageEdit(value => value)
+  const workspaceItems = useWorkspaces(value => value.items)
   const [cascade, setCascade] = useState<CascadePolicy>('truncate')
+  const [forkWorkspaceId, setForkWorkspaceId] = useState('')
   const [editing, setEditing] = useState<EditingState | null>(null)
   const [draft, setDraft] = useState<{ signature: string; rows: DraftRow[] } | null>(null)
   const [history, setHistory] = useState<DraftRow[][]>([])
@@ -365,6 +369,11 @@ export function MessageEditTimelineView({
   const [dragOverTarget, setDragOverTarget] = useState<{ key: string; position: 'top' | 'bottom' } | null>(null)
   const [dragOverSection, setDragOverSection] = useState<{ id: string; position: 'top' | 'bottom' } | null>(null)
   const [collapsedSectionIds, setCollapsedSectionIds] = useState<Set<string>>(new Set())
+  const currentWorkspace = useMemo(
+    () => workspaceItems.find(workspace => workspace.sessionIds.includes(sessionId)),
+    [workspaceItems, sessionId],
+  )
+  const selectedForkWorkspaceId = forkWorkspaceId
 
   useEffect(() => {
     const release = acquire()
@@ -409,6 +418,7 @@ export function MessageEditTimelineView({
     const sessionChanged = lastSessionIdRef.current !== timeline?.sessionId
     lastSessionIdRef.current = timeline?.sessionId ?? null
     if (sessionChanged) {
+      setForkWorkspaceId('')
       setCollapsedSectionIds(new Set(baselineRows.map(r => r.turn !== undefined ? `turn-${String(r.turn)}` : `added-${r.key}`)))
     }
   }, [signature, baselineRows, timeline?.sessionId])
@@ -863,39 +873,63 @@ export function MessageEditTimelineView({
         <div>
           <h1 className={styles['title']}>消息编辑与重生成</h1>
           <p className={styles['intro']}>
-            在右列自由增删改已落定消息，Fork 按当前内容重建消息历史并生成新版本；以用户消息结尾时，
-            新版本会生成新的助手回复。每次修改与其恢复版本成对记录，原版本保持不变。
+            在右列自由增删改已落定消息，Fork 按当前内容重建消息历史并生成新版本；可在顶部选择目标工作区。
+            以用户消息结尾时，新版本会生成新的助手回复。每次修改与其恢复版本成对记录，原版本保持不变。
           </p>
         </div>
         <div className={styles['headerActions']}>
-          <label className={styles['cascadeField']}>
-            <span>重试后续策略</span>
-            <select
-              className={styles['select']}
-              value={cascade}
-              onChange={(event) => { setCascade(event.currentTarget.value as CascadePolicy) }}
+          <div className={styles['actionRow']}>
+            <label className={styles['cascadeField']}>
+              <span>重试后续策略</span>
+              <select
+                className={styles['select']}
+                value={cascade}
+                onChange={(event) => { setCascade(event.currentTarget.value as CascadePolicy) }}
+              >
+                <option value="truncate">截断后续回合</option>
+                <option value="preserve">保留后续用户输入</option>
+              </select>
+            </label>
+            <button
+              type="button"
+              className={styles['primaryButton']}
+              disabled={busy || editing !== null || (!changes.hasChanges && !hasSelection && selectedForkWorkspaceId === '')}
+              title={hasSelection
+                ? '基于当前选中的消息列表重建新版本历史'
+                : selectedForkWorkspaceId !== ''
+                  ? '按当前历史 Fork 到目标工作区'
+                  : '按右列当前内容重建消息历史并生成新版本；结尾的用户消息会触发新的助手回复'}
+              onClick={() => { void fork(forkRows(), selectedForkWorkspaceId || undefined) }}
             >
-              <option value="truncate">截断后续回合</option>
-              <option value="preserve">保留后续用户输入</option>
+              {forkLabel}
+            </button>
+            <button
+              type="button"
+              className={styles['secondaryButton']}
+              disabled={busy}
+              onClick={() => { void reroll() }}
+            >
+              {state.pending === 'reroll' ? '正在重生成…' : '重生成最后回复'}
+            </button>
+          </div>
+          <label className={`${styles['cascadeField']} ${styles['workspaceField']}`}>
+            <span>Fork 目标工作区</span>
+            <select
+              className={`${styles['select']} ${styles['workspaceSelect']}`}
+              value={selectedForkWorkspaceId}
+              disabled={busy}
+              onChange={(event) => { setForkWorkspaceId(event.currentTarget.value) }}
+            >
+              <option value="">
+                {currentWorkspace === undefined ? '沿用源会话工作目录' : `跟随当前工作区：${currentWorkspace.title}`}
+              </option>
+              {workspaceItems.map(workspace => (
+                <option key={workspace.workspaceId} value={workspace.workspaceId}>
+                  {workspace.title} · {workspace.path}
+                </option>
+              ))}
             </select>
           </label>
-          <button
-            type="button"
-            className={styles['primaryButton']}
-            disabled={busy || editing !== null || (!changes.hasChanges && !hasSelection)}
-            title={hasSelection ? '基于当前选中的消息列表重建新版本历史' : '按右列当前内容重建消息历史并生成新版本；结尾的用户消息会触发新的助手回复'}
-            onClick={() => { void fork(forkRows()) }}
-          >
-            {forkLabel}
-          </button>
-          <button
-            type="button"
-            className={styles['secondaryButton']}
-            disabled={busy}
-            onClick={() => { void reroll() }}
-          >
-            {state.pending === 'reroll' ? '正在重生成…' : '重生成最后回复'}
-          </button>
         </div>
       </header>
 

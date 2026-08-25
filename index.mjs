@@ -703,7 +703,7 @@ function appendSurfaceSeedEvent(events, type, data, intent) {
 		...intent.sourceEventSeqs === void 0 ? {} : { sourceEventSeqs: intent.sourceEventSeqs }
 	});
 }
-function appendManualTurn(events, manual) {
+function appendManualTurn(events, manual, emittedCallIds) {
 	const { turn, items } = manual;
 	appendLogSeedEvent(events, "turn/start", { turn });
 	let step = 1;
@@ -738,13 +738,16 @@ function appendManualTurn(events, manual) {
 		});
 		for (const block of assistant.content) {
 			if (block.type !== "tool-call") continue;
-			appendLogSeedEvent(events, "tool/call", {
-				turn,
-				step,
-				callId: block.id,
-				name: block.name,
-				arguments: block.arguments
-			});
+			if (!emittedCallIds.has(block.id)) {
+				appendLogSeedEvent(events, "tool/call", {
+					turn,
+					step,
+					callId: block.id,
+					name: block.name,
+					arguments: block.arguments
+				});
+				emittedCallIds.add(block.id);
+			}
 			pendingCalls.add(block.id);
 		}
 		if (pendingCalls.size === 0) closeStep();
@@ -780,7 +783,19 @@ function appendManualTurn(events, manual) {
 				};
 			}
 		}
-		if (!stepOpen || !pendingCalls.has(callId)) openAssistantStep(item.toolResultFallbackAssistant);
+		if (!stepOpen || !pendingCalls.has(callId)) {
+			if (!emittedCallIds.has(callId) && item.toolResultFallbackAssistant !== void 0) openAssistantStep(item.toolResultFallbackAssistant);
+			else {
+				if (!stepOpen) {
+					appendLogSeedEvent(events, "step/start", {
+						turn,
+						step
+					});
+					stepOpen = true;
+				}
+				pendingCalls.add(callId);
+			}
+		}
 		if (!stepOpen || !pendingCalls.has(callId)) throw new Error(`无法为工具结果 ${callId} 恢复对应的工具调用。`);
 		appendSurfaceSeedEvent(events, "tool/result", {
 			turn,
@@ -801,8 +816,10 @@ function appendManualTurn(events, manual) {
 function versionSeed(source, plan) {
 	const events = inheritedSeed(source, plan.boundary);
 	const inheritedLength = events.length;
+	const emittedCallIds = /* @__PURE__ */ new Set();
+	for (const event of events) if (event.type === "tool/call" && typeof event.data?.callId === "string") emittedCallIds.add(event.data.callId);
 	appendLogSeedEvent(events, "message-edit/version", plan.version, true);
-	for (const manual of plan.manualTurns) appendManualTurn(events, manual);
+	for (const manual of plan.manualTurns) appendManualTurn(events, manual, emittedCallIds);
 	return {
 		events,
 		inheritedLength
@@ -830,7 +847,7 @@ function resolveSourceTitle(ctx, source, proposedTitle) {
 		}
 	}
 }
-async function createVersionAgent(ctx, source, childId, plan, options, title) {
+async function createVersionAgent(ctx, source, childId, plan, options, title, cwd) {
 	const seed = versionSeed(source, plan);
 	if (title !== void 0 && (plan.boundary === -1 || plan.version.effect.operation === "fork")) appendLogSeedEvent(seed.events, "session/title", { title });
 	const presets = ctx.get("agentPresets");
@@ -844,11 +861,12 @@ async function createVersionAgent(ctx, source, childId, plan, options, title) {
 			await presets.mount(agentCtx, resolved);
 		};
 	}
+	const childCwd = cwd ?? source.header.cwd;
 	const child = await ctx.agents.create({
 		sessionId: childId,
 		seed: seed.events,
 		meta: {
-			...source.header.cwd === void 0 ? {} : { cwd: source.header.cwd },
+			...childCwd === void 0 ? {} : { cwd: childCwd },
 			parentSession: source.id,
 			seedLength: seed.inheritedLength,
 			...agentPreset === void 0 ? {} : { agentPreset }
@@ -873,6 +891,14 @@ async function createVersionAgent(ctx, source, childId, plan, options, title) {
 function sourceWorkspace(ctx, sessionId) {
 	return ctx.workspaceRegistry.list().find((workspace) => workspace.sessionIds.includes(sessionId));
 }
+function operationWorkspace(ctx, sourceId, operation) {
+	if (operation.action === "fork" && operation.workspaceId !== void 0) {
+		const workspace = ctx.workspaceRegistry.get(operation.workspaceId);
+		if (workspace === void 0) throw new Error("目标工作区不存在。");
+		return workspace;
+	}
+	return sourceWorkspace(ctx, sourceId);
+}
 async function recoverOperation(inverses) {
 	const failures = [];
 	for (const inverse of inverses.reverse()) try {
@@ -890,14 +916,20 @@ async function runOperation(ctx, operation) {
 		try {
 			const events = source.session.events;
 			const title = resolveSourceTitle(ctx, source.session, operation.title);
+			const workspace = operationWorkspace(ctx, sourceId, operation);
+			const targetCwd = operation.action === "fork" && operation.workspaceId !== void 0 ? workspace?.path : void 0;
 			const plan = planOperation(operation, events, source.options);
 			const options = agentOptions(events, source.options, operation.route);
-			const child = await createVersionAgent(ctx, source.session, childId, plan, options, title);
+			const child = await createVersionAgent(ctx, source.session, childId, plan, options, title, targetCwd);
 			inverses.push(() => child.dispose());
-			const workspace = sourceWorkspace(ctx, sourceId);
 			if (workspace !== void 0) {
 				await workspace.attachSession(childId);
 				inverses.push(() => workspace.detachSession(childId));
+				if (operation.action === "fork" && operation.workspaceId !== void 0) for (const candidate of ctx.workspaceRegistry.list()) {
+					if (candidate.id === workspace.id || !candidate.sessionIds.includes(childId)) continue;
+					await candidate.detachSession(childId);
+					inverses.push(() => candidate.attachSession(childId));
+				}
 			}
 			for (const message of plan.queuedUsers) child.agent.followup(message);
 			inverses.length = 0;
@@ -1083,6 +1115,11 @@ function sessionIdOf(value) {
 	if (typeof value !== "string" || value.length === 0) throw new TypeError("sessionId 必须是非空字符串。");
 	return value;
 }
+function optionalWorkspaceIdOf(value) {
+	if (value === void 0) return void 0;
+	if (typeof value !== "string" || value.length === 0) throw new TypeError("workspaceId 必须是非空字符串。");
+	return value;
+}
 function integerOf(value, name) {
 	if (!Number.isSafeInteger(value) || value < 0) throw new TypeError(`${name} 必须是非负安全整数。`);
 	return value;
@@ -1141,6 +1178,7 @@ function decodeOperation(value) {
 			...title === void 0 ? {} : { title }
 		};
 		case "fork": {
+			const workspaceId = optionalWorkspaceIdOf(record["workspaceId"]);
 			const rowsValue = record["rows"];
 			if (!Array.isArray(rowsValue)) throw new TypeError("rows 必须是数组。");
 			return {
@@ -1163,6 +1201,7 @@ function decodeOperation(value) {
 						...sourceBlockIndex === void 0 ? {} : { sourceBlockIndex }
 					};
 				}),
+				...workspaceId === void 0 ? {} : { workspaceId },
 				...route === void 0 ? {} : { route },
 				...title === void 0 ? {} : { title }
 			};
