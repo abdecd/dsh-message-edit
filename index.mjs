@@ -118,7 +118,7 @@ function closedTurns(events, includeOpen = true) {
 			continue;
 		}
 		if (current === void 0) {
-			if (event.type === "user/message" || event.type === "assistant/message" || event.type === "tool/result" || event.type === "request/header") current = {
+			if (event.type === "user/message" || event.type === "assistant/message" || event.type === "tool/result" || event.type === "request/header" || event.type === "request/context") current = {
 				turn: typeof event.data?.turn === "number" ? event.data.turn : 1,
 				startSeq: event.seq,
 				assistants: [],
@@ -140,7 +140,7 @@ function closedTurns(events, includeOpen = true) {
 			current.events.push(event);
 			continue;
 		}
-		if (event.type === "request/header") {
+		if (event.type === "request/header" || event.type === "request/context") {
 			current.events.push(event);
 			continue;
 		}
@@ -249,11 +249,11 @@ function assistantReplacement(event, blockIndex, text) {
 		})
 	});
 }
-function editPlan(operation, turns) {
-	const turnIndex = turns.findIndex((turn) => operation.eventSeq > turn.startSeq && operation.eventSeq < turn.endSeq);
+function editPlan(operation, turns, events, fallback, preferred) {
+	const turnIndex = turns.findIndex((turn) => operation.eventSeq >= turn.startSeq && (turn.endSeq === Number.POSITIVE_INFINITY || operation.eventSeq <= turn.endSeq));
 	const turn = turns[turnIndex];
 	if (turn === void 0) throw new Error("所选消息不属于已落定回合。");
-	const event = turn.user?.seq === operation.eventSeq ? turn.user : turn.assistants.find((candidate) => candidate.seq === operation.eventSeq);
+	const event = turn.user?.seq === operation.eventSeq ? turn.user : turn.assistants.find((candidate) => candidate.seq === operation.eventSeq) ?? turn.events.find((candidate) => candidate.seq === operation.eventSeq);
 	if (event === void 0) throw new Error("所选消息不存在或不可编辑。");
 	if (event.type === "user/message") {
 		const before = event.data.content[operation.blockIndex];
@@ -276,11 +276,50 @@ function editPlan(operation, turns) {
 			queuedUsers: [edited, ...later]
 		};
 	}
+	if (event.type === "request/header") {
+		const beforeText = event.data.header?.system ?? "";
+		const later = operation.cascade === "preserve" ? downstreamUsers(turns, turnIndex + 1) : [];
+		const turnUser = turn.user ? [cloneUser(turn.user.data)] : [];
+		return {
+			boundary: turn.startSeq - 1,
+			version: pairVersionEffect(operation.sessionId, {
+				operation: "edit",
+				cascade: operation.cascade,
+				targetTurn: turn.turn,
+				targetEventSeq: event.seq,
+				targetBlockIndex: operation.blockIndex,
+				blockKind: "system",
+				before: beforeText,
+				after: operation.text
+			}),
+			manualTurns: [],
+			queuedUsers: [...turnUser, ...later]
+		};
+	}
+	if (event.type !== "assistant/message") throw new Error("所选消息不存在或不可编辑。");
 	const before = event.data.message.content[operation.blockIndex];
 	if (!isTextualBlock(before) && before?.type !== "tool-call") throw new Error("所选助手消息块不是文本或工具调用。");
 	const blockKind = before.type === "reasoning" ? "assistant.reasoning" : "assistant.response";
 	const beforeText = isTextualBlock(before) ? before.text : `[工具调用: ${before.name || "tool"}]${before.arguments ? ` ${before.arguments}` : ""}`;
 	if (turn.user === void 0) throw new Error("所选助手消息没有可重建的用户输入。");
+	const route = modelRoute(events, fallback, preferred);
+	const manualTurnItems = [{
+		kind: "user",
+		user: cloneUser(turn.user.data)
+	}];
+	if (turnIndex === 0) {
+		const header = sourceLatestHeader(events, route);
+		const context = sourceLatestContext(events, route);
+		manualTurnItems.push({
+			kind: "header",
+			header,
+			...context === void 0 ? {} : { context }
+		});
+	}
+	manualTurnItems.push({
+		kind: "assistant",
+		assistant: assistantReplacement(event, operation.blockIndex, operation.text)
+	});
 	return {
 		boundary: turn.startSeq - 1,
 		version: pairVersionEffect(operation.sessionId, {
@@ -295,13 +334,7 @@ function editPlan(operation, turns) {
 		}),
 		manualTurns: [{
 			turn: turn.turn,
-			items: [{
-				kind: "user",
-				user: cloneUser(turn.user.data)
-			}, {
-				kind: "assistant",
-				assistant: assistantReplacement(event, operation.blockIndex, operation.text)
-			}]
+			items: manualTurnItems
 		}],
 		queuedUsers: operation.cascade === "preserve" ? downstreamUsers(turns, turnIndex + 1) : []
 	};
@@ -365,14 +398,51 @@ function sourceUserMessage(row, events, expectedSource) {
 		} : candidate)
 	};
 }
-function sourceHeader(row, events) {
+function sourceHeader(row, events, route) {
 	const event = sourceEvent(row, events);
 	if (event === void 0) return void 0;
 	if (event.type !== "request/header") throw new Error("Fork 行引用的来源不是 request/header。");
-	if (event.data.header.system === row.text) return event.data.header;
+	const base = event.data.header;
+	const config = route !== void 0 ? {
+		...base.config,
+		provider: route.provider,
+		model: route.model
+	} : base.config;
+	if (base.system === row.text && config === base.config) return base;
 	return {
-		...event.data.header,
+		...base,
+		config,
 		system: row.text
+	};
+}
+function sourceLatestHeader(events, route, fallbackSystem) {
+	const lastEvent = events.findLast((event) => event.type === "request/header");
+	if (lastEvent !== void 0) {
+		const base = lastEvent.data.header;
+		return {
+			...base,
+			config: {
+				...base.config,
+				provider: route.provider,
+				model: route.model
+			},
+			...fallbackSystem !== void 0 ? { system: fallbackSystem } : {}
+		};
+	}
+	return {
+		config: {
+			provider: route.provider,
+			model: route.model
+		},
+		...fallbackSystem !== void 0 && fallbackSystem.length > 0 ? { system: fallbackSystem } : {}
+	};
+}
+function sourceLatestContext(events, route) {
+	const lastEvent = events.findLast((event) => event.type === "request/context");
+	if (lastEvent !== void 0) return {
+		...lastEvent.data,
+		provider: route.provider,
+		model: route.model
 	};
 }
 function sourceToolResult(row, events) {
@@ -563,15 +633,18 @@ function groupForkRowsToTurns(rows, route, events) {
 			pendingAssistantRows.push(row);
 		} else if (row.kind === "system") {
 			flushAssistant(current);
+			const header = sourceHeader(row, events, route) ?? {
+				config: {
+					provider: route.provider,
+					model: route.model
+				},
+				system: row.text
+			};
+			const context = sourceLatestContext(events, route);
 			current.items.push({
 				kind: "header",
-				header: sourceHeader(row, events) ?? {
-					config: {
-						provider: route.provider,
-						model: route.model
-					},
-					system: row.text
-				}
+				header,
+				...context === void 0 ? {} : { context }
 			});
 		} else if (row.kind === "context.inject") {
 			flushAssistant(current);
@@ -607,9 +680,23 @@ function groupForkRowsToTurns(rows, route, events) {
 		}
 	}
 	if (current !== void 0) flushAssistant(current);
-	return turns.filter((turn) => turn.items.length > 0);
+	const filteredTurns = turns.filter((turn) => turn.items.length > 0);
+	if (!filteredTurns.some((turn) => turn.items.some((item) => item.kind === "header")) && filteredTurns.length > 0) {
+		const header = sourceLatestHeader(events, route);
+		const context = sourceLatestContext(events, route);
+		const firstTurn = filteredTurns[0];
+		const headerItem = {
+			kind: "header",
+			header,
+			...context === void 0 ? {} : { context }
+		};
+		const userIndex = firstTurn.items.findIndex((item) => item.kind === "user");
+		if (userIndex !== -1) firstTurn.items.splice(userIndex + 1, 0, headerItem);
+		else firstTurn.items.unshift(headerItem);
+	}
+	return filteredTurns;
 }
-function forkPlan(operation, events, fallback) {
+function forkPlan(operation, events, fallback, preferred) {
 	const rows = operation.rows;
 	let queuedUsers = [];
 	let seedRows = rows;
@@ -618,7 +705,7 @@ function forkPlan(operation, events, fallback) {
 		queuedUsers = [sourceUserMessage(last, events, "user") ?? newUserMessage(last.text)];
 		seedRows = rows.slice(0, -1);
 	}
-	const route = modelRoute(events, fallback);
+	const route = modelRoute(events, fallback, preferred);
 	const manualTurns = groupForkRowsToTurns(seedRows, route, events);
 	return {
 		boundary: -1,
@@ -633,19 +720,24 @@ function forkPlan(operation, events, fallback) {
 		queuedUsers
 	};
 }
-function planOperation(operation, events, fallback) {
+function planOperation(operation, events, fallback, preferred) {
 	const turns = closedTurns(events);
+	const route = preferred ?? ("route" in operation ? operation.route : void 0);
 	switch (operation.action) {
-		case "edit": return editPlan(operation, turns);
+		case "edit": return editPlan(operation, turns, events, fallback, route);
 		case "reroll": return rerollPlan(operation.sessionId, turns);
 		case "retry": return retryPlan(operation.sessionId, operation.turn, operation.cascade, turns);
-		case "fork": return forkPlan(operation, events, fallback);
+		case "fork": return forkPlan(operation, events, fallback, route);
 	}
 }
-function modelRoute(events, fallback) {
+function modelRoute(events, fallback, preferred) {
+	if (preferred?.provider && preferred?.model) return {
+		provider: preferred.provider,
+		model: preferred.model
+	};
 	const config = events.findLast((event) => event.type === "request/header")?.data.header.config;
-	const provider = config?.provider ?? fallback?.provider;
-	const model = config?.model ?? fallback?.model;
+	const provider = preferred?.provider ?? config?.provider ?? fallback?.provider;
+	const model = preferred?.model ?? config?.model ?? fallback?.model;
 	if (provider === void 0 || provider.length === 0 || model === void 0 || model.length === 0) throw new Error("无法从会话历史解析模型路由。");
 	return {
 		provider,
@@ -653,7 +745,7 @@ function modelRoute(events, fallback) {
 	};
 }
 function agentOptions(events, fallback, preferred) {
-	const route = preferred ?? modelRoute(events, fallback);
+	const route = modelRoute(events, fallback, preferred);
 	const maxTokens = events.findLast((event) => event.type === "request/header")?.data.header.config?.maxTokens ?? fallback?.maxTokens;
 	return {
 		...route,
@@ -752,12 +844,13 @@ function appendManualTurn(events, manual, emittedCallIds) {
 		}
 		if (pendingCalls.size === 0) closeStep();
 	};
-	for (const item of items) if (item.kind === "header" && item.header !== void 0) {
+	for (const item of items) if (item.kind === "header") {
 		closeStep();
-		appendLogSeedEvent(events, "request/header", {
+		if (item.header !== void 0) appendLogSeedEvent(events, "request/header", {
 			header: item.header,
-			reason: "initial"
+			reason: item.headerReason ?? (events.some((e) => e.type === "request/header") ? "change" : "initial")
 		});
+		if (item.context !== void 0) appendLogSeedEvent(events, "request/context", item.context);
 	} else if (item.kind === "user" && item.user !== void 0) {
 		closeStep();
 		appendSurfaceSeedEvent(events, "user/message", item.user, { surfaceOp: "append" });
@@ -918,7 +1011,7 @@ async function runOperation(ctx, operation) {
 			const title = resolveSourceTitle(ctx, source.session, operation.title);
 			const workspace = operationWorkspace(ctx, sourceId, operation);
 			const targetCwd = operation.action === "fork" && operation.workspaceId !== void 0 ? workspace?.path : void 0;
-			const plan = planOperation(operation, events, source.options);
+			const plan = planOperation(operation, events, source.options, operation.route);
 			const options = agentOptions(events, source.options, operation.route);
 			const child = await createVersionAgent(ctx, source.session, childId, plan, options, title, targetCwd);
 			inverses.push(() => child.dispose());

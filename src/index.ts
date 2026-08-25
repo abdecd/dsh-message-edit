@@ -11,6 +11,8 @@ import {
   type SurfaceEventType,
   type SurfaceIntent,
   type EpochHeader,
+  type RequestContext,
+  type RequestHeaderReason,
 } from '@deepseek-ai/dsh-session'
 ;(KNOWN_SESSION_EVENT_TYPES as Set<string>).add('message-edit/version')
 import type {
@@ -135,6 +137,8 @@ interface ClosedTurn {
 interface ManualTurnItem {
   kind: 'header' | 'user' | 'assistant' | 'tool.result'
   header?: EpochHeader
+  headerReason?: RequestHeaderReason
+  context?: RequestContext
   user?: UserMessage
   assistant?: AssistantMessage
   assistantUsage?: AssistantEvent['data']['usage']
@@ -259,7 +263,8 @@ function closedTurns(events: readonly SessionEvent[], includeOpen = true): Close
         event.type === 'user/message' ||
         event.type === 'assistant/message' ||
         event.type === 'tool/result' ||
-        event.type === 'request/header'
+        event.type === 'request/header' ||
+        event.type === 'request/context'
       ) {
         const turnNum = typeof (event.data as { turn?: unknown })?.turn === 'number'
           ? (event.data as { turn: number }).turn
@@ -290,7 +295,7 @@ function closedTurns(events: readonly SessionEvent[], includeOpen = true): Close
       current.events.push(event)
       continue
     }
-    if (event.type === 'request/header') {
+    if (event.type === 'request/header' || event.type === 'request/context') {
       current.events.push(event)
       continue
     }
@@ -422,13 +427,20 @@ function assistantReplacement(event: AssistantEvent, blockIndex: number, text: s
   }) as AssistantMessage
 }
 
-function editPlan(operation: EditOperation, turns: readonly ClosedTurn[]): OperationPlan {
-  const turnIndex = turns.findIndex(turn => operation.eventSeq > turn.startSeq && operation.eventSeq < turn.endSeq)
+function editPlan(
+  operation: EditOperation,
+  turns: readonly ClosedTurn[],
+  events: readonly SessionEvent[],
+  fallback?: AgentOptions,
+  preferred?: ModelRoute,
+): OperationPlan {
+  const turnIndex = turns.findIndex(turn => operation.eventSeq >= turn.startSeq && (turn.endSeq === Number.POSITIVE_INFINITY || operation.eventSeq <= turn.endSeq))
   const turn = turns[turnIndex]
   if (turn === undefined) throw new Error('所选消息不属于已落定回合。')
   const event = turn.user?.seq === operation.eventSeq
     ? turn.user
     : turn.assistants.find(candidate => candidate.seq === operation.eventSeq)
+      ?? turn.events.find(candidate => candidate.seq === operation.eventSeq)
   if (event === undefined) throw new Error('所选消息不存在或不可编辑。')
 
   if (event.type === 'user/message') {
@@ -453,6 +465,29 @@ function editPlan(operation: EditOperation, turns: readonly ClosedTurn[]): Opera
     }
   }
 
+  if (event.type === 'request/header') {
+    const beforeText = event.data.header?.system ?? ''
+    const later = operation.cascade === 'preserve' ? downstreamUsers(turns, turnIndex + 1) : []
+    const turnUser = turn.user ? [cloneUser(turn.user.data)] : []
+    return {
+      boundary: turn.startSeq - 1,
+      version: pairVersionEffect(operation.sessionId, {
+        operation: 'edit',
+        cascade: operation.cascade,
+        targetTurn: turn.turn,
+        targetEventSeq: event.seq,
+        targetBlockIndex: operation.blockIndex,
+        blockKind: 'system',
+        before: beforeText,
+        after: operation.text,
+      }),
+      manualTurns: [],
+      queuedUsers: [...turnUser, ...later],
+    }
+  }
+
+  if (event.type !== 'assistant/message') throw new Error('所选消息不存在或不可编辑。')
+
   const before = event.data.message.content[operation.blockIndex]
   if (!isTextualBlock(before) && before?.type !== 'tool-call') throw new Error('所选助手消息块不是文本或工具调用。')
   const blockKind: EditableBlockKind = before.type === 'reasoning'
@@ -462,6 +497,25 @@ function editPlan(operation: EditOperation, turns: readonly ClosedTurn[]): Opera
     ? before.text
     : `[工具调用: ${before.name || 'tool'}]${before.arguments ? ` ${before.arguments}` : ''}`
   if (turn.user === undefined) throw new Error('所选助手消息没有可重建的用户输入。')
+
+  const route = modelRoute(events, fallback, preferred)
+  const manualTurnItems: ManualTurnItem[] = [
+    { kind: 'user', user: cloneUser(turn.user.data) },
+  ]
+  if (turnIndex === 0) {
+    const header = sourceLatestHeader(events, route)
+    const context = sourceLatestContext(events, route)
+    manualTurnItems.push({
+      kind: 'header',
+      header,
+      ...context === undefined ? {} : { context },
+    })
+  }
+  manualTurnItems.push({
+    kind: 'assistant',
+    assistant: assistantReplacement(event, operation.blockIndex, operation.text),
+  })
+
   return {
     boundary: turn.startSeq - 1,
     version: pairVersionEffect(operation.sessionId, {
@@ -476,10 +530,7 @@ function editPlan(operation: EditOperation, turns: readonly ClosedTurn[]): Opera
     }),
     manualTurns: [{
       turn: turn.turn,
-      items: [
-        { kind: 'user', user: cloneUser(turn.user.data) },
-        { kind: 'assistant', assistant: assistantReplacement(event, operation.blockIndex, operation.text) },
-      ],
+      items: manualTurnItems,
     }],
     queuedUsers: operation.cascade === 'preserve'
       ? downstreamUsers(turns, turnIndex + 1)
@@ -564,12 +615,59 @@ function sourceUserMessage(
   } as UserMessage
 }
 
-function sourceHeader(row: ForkMessageRow, events: readonly SessionEvent[]): EpochHeader | undefined {
+function sourceHeader(
+  row: ForkMessageRow,
+  events: readonly SessionEvent[],
+  route?: { provider: string; model: string },
+): EpochHeader | undefined {
   const event = sourceEvent(row, events)
   if (event === undefined) return undefined
   if (event.type !== 'request/header') throw new Error('Fork 行引用的来源不是 request/header。')
-  if (event.data.header.system === row.text) return event.data.header
-  return { ...event.data.header, system: row.text }
+  const base = event.data.header
+  const config = route !== undefined
+    ? { ...base.config, provider: route.provider, model: route.model }
+    : base.config
+  if (base.system === row.text && config === base.config) return base
+  return { ...base, config, system: row.text }
+}
+
+function sourceLatestHeader(
+  events: readonly SessionEvent[],
+  route: { provider: string; model: string },
+  fallbackSystem?: string,
+): EpochHeader {
+  const lastEvent = events.findLast((event): event is SessionEvent<'request/header'> => event.type === 'request/header')
+  if (lastEvent !== undefined) {
+    const base = lastEvent.data.header
+    return {
+      ...base,
+      config: {
+        ...base.config,
+        provider: route.provider,
+        model: route.model,
+      },
+      ...fallbackSystem !== undefined ? { system: fallbackSystem } : {},
+    }
+  }
+  return {
+    config: { provider: route.provider, model: route.model },
+    ...fallbackSystem !== undefined && fallbackSystem.length > 0 ? { system: fallbackSystem } : {},
+  }
+}
+
+function sourceLatestContext(
+  events: readonly SessionEvent[],
+  route: { provider: string; model: string },
+): RequestContext | undefined {
+  const lastEvent = events.findLast((event): event is SessionEvent<'request/context'> => event.type === 'request/context')
+  if (lastEvent !== undefined) {
+    return {
+      ...lastEvent.data,
+      provider: route.provider,
+      model: route.model,
+    }
+  }
+  return undefined
 }
 
 function sourceToolResult(
@@ -757,12 +855,15 @@ function groupForkRowsToTurns(
       pendingAssistantRows.push(row)
     } else if (row.kind === 'system') {
       flushAssistant(current)
+      const header = sourceHeader(row, events, route) ?? {
+        config: { provider: route.provider, model: route.model },
+        system: row.text,
+      }
+      const context = sourceLatestContext(events, route)
       current.items.push({
         kind: 'header',
-        header: sourceHeader(row, events) ?? {
-          config: { provider: route.provider, model: route.model },
-          system: row.text,
-        },
+        header,
+        ...context === undefined ? {} : { context },
       })
     } else if (row.kind === 'context.inject') {
       flushAssistant(current)
@@ -796,13 +897,32 @@ function groupForkRowsToTurns(
   }
 
   if (current !== undefined) flushAssistant(current)
-  return turns.filter(turn => turn.items.length > 0)
+  const filteredTurns = turns.filter(turn => turn.items.length > 0)
+  const hasHeader = filteredTurns.some(turn => turn.items.some(item => item.kind === 'header'))
+  if (!hasHeader && filteredTurns.length > 0) {
+    const header = sourceLatestHeader(events, route)
+    const context = sourceLatestContext(events, route)
+    const firstTurn = filteredTurns[0]!
+    const headerItem: ManualTurnItem = {
+      kind: 'header',
+      header,
+      ...context === undefined ? {} : { context },
+    }
+    const userIndex = firstTurn.items.findIndex(item => item.kind === 'user')
+    if (userIndex !== -1) {
+      firstTurn.items.splice(userIndex + 1, 0, headerItem)
+    } else {
+      firstTurn.items.unshift(headerItem)
+    }
+  }
+  return filteredTurns
 }
 
 function forkPlan(
   operation: ForkOperation,
   events: readonly SessionEvent[],
   fallback?: AgentOptions,
+  preferred?: ModelRoute,
 ): OperationPlan {
   const rows = operation.rows
   let queuedUsers: UserMessage[] = []
@@ -813,7 +933,7 @@ function forkPlan(
     seedRows = rows.slice(0, -1)
   }
 
-  const route = modelRoute(events, fallback)
+  const route = modelRoute(events, fallback, preferred)
   const manualTurns = groupForkRowsToTurns(seedRows, route, events)
 
   return {
@@ -834,27 +954,33 @@ function planOperation(
   operation: MessageEditOperation,
   events: readonly SessionEvent[],
   fallback?: AgentOptions,
+  preferred?: ModelRoute,
 ): OperationPlan {
   const turns = closedTurns(events)
+  const route = preferred ?? ('route' in operation ? operation.route : undefined)
   switch (operation.action) {
     case 'edit':
-      return editPlan(operation, turns)
+      return editPlan(operation, turns, events, fallback, route)
     case 'reroll':
       return rerollPlan(operation.sessionId, turns)
     case 'retry':
       return retryPlan(operation.sessionId, operation.turn, operation.cascade, turns)
     case 'fork':
-      return forkPlan(operation, events, fallback)
+      return forkPlan(operation, events, fallback, route)
   }
 }
 
 function modelRoute(
   events: readonly SessionEvent[],
   fallback?: AgentOptions,
+  preferred?: ModelRoute,
 ): { provider: string; model: string } {
+  if (preferred?.provider && preferred?.model) {
+    return { provider: preferred.provider, model: preferred.model }
+  }
   const config = events.findLast(event => event.type === 'request/header')?.data.header.config
-  const provider = config?.provider ?? fallback?.provider
-  const model = config?.model ?? fallback?.model
+  const provider = preferred?.provider ?? config?.provider ?? fallback?.provider
+  const model = preferred?.model ?? config?.model ?? fallback?.model
   if (provider === undefined || provider.length === 0 || model === undefined || model.length === 0) {
     throw new Error('无法从会话历史解析模型路由。')
   }
@@ -868,7 +994,7 @@ function agentOptions(
 ): AgentOptions {
   /* A composer-forwarded route wins over the last logged request/header so a
      re-execution follows the model the chat input currently targets. */
-  const route = preferred ?? modelRoute(events, fallback)
+  const route = modelRoute(events, fallback, preferred)
   const maxTokens = events.findLast(event => event.type === 'request/header')?.data.header.config?.maxTokens
     ?? fallback?.maxTokens
   return {
@@ -1001,9 +1127,17 @@ function appendManualTurn(
   }
 
   for (const item of items) {
-    if (item.kind === 'header' && item.header !== undefined) {
+    if (item.kind === 'header') {
       closeStep()
-      appendLogSeedEvent(events, 'request/header', { header: item.header, reason: 'initial' })
+      if (item.header !== undefined) {
+        appendLogSeedEvent(events, 'request/header', {
+          header: item.header,
+          reason: item.headerReason ?? (events.some(e => e.type === 'request/header') ? 'change' : 'initial'),
+        })
+      }
+      if (item.context !== undefined) {
+        appendLogSeedEvent(events, 'request/context', item.context)
+      }
     } else if (item.kind === 'user' && item.user !== undefined) {
       closeStep()
       appendSurfaceSeedEvent(events, 'user/message', item.user, { surfaceOp: 'append' })
@@ -1209,7 +1343,7 @@ async function runOperation(ctx: Context, operation: MessageEditOperation): Prom
       const targetCwd = operation.action === 'fork' && operation.workspaceId !== undefined
         ? workspace?.path
         : undefined
-      const plan = planOperation(operation, events, source.options)
+      const plan = planOperation(operation, events, source.options, operation.route)
       const options = agentOptions(events, source.options, operation.route)
       const child = await createVersionAgent(ctx, source.session, childId, plan, options, title, targetCwd)
       inverses.push(() => child.dispose())
