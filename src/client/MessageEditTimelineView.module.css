@@ -1,6 +1,7 @@
 .root {
   box-sizing: border-box;
   width: 100%;
+  min-width: 0;
   padding: 24px;
   color: var(--dsw-alias-label-primary);
   background: var(--dsw-alias-bg-layer-1);
@@ -12,7 +13,12 @@
   justify-content: space-between;
   gap: 20px;
   max-width: 1480px;
+  min-width: 0;
   margin: 0 auto 16px;
+}
+
+.pageHeader > :first-child {
+  min-width: 0;
 }
 
 .title,
@@ -39,6 +45,7 @@
   color: var(--dsw-alias-label-tertiary);
   font-size: 13px;
   line-height: 20px;
+  overflow-wrap: anywhere;
 }
 
 .headerActions {
@@ -47,12 +54,15 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 8px;
+  min-width: 0;
 }
 
 .actionRow {
   display: flex;
   align-items: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
+  min-width: 0;
 }
 
 .workspaceField {
@@ -64,6 +74,7 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
   color: var(--dsw-alias-label-secondary);
   font-size: 11px;
   line-height: 16px;
@@ -86,6 +97,7 @@
   border-radius: 8px;
   color: var(--dsw-alias-label-primary);
   background: var(--dsw-alias-bg-layer-1);
+  max-width: 100%;
 }
 
 .select {
@@ -95,7 +107,8 @@
 }
 
 .workspaceSelect {
-  max-width: 280px;
+  width: min(280px, 100%);
+  max-width: 100%;
 }
 
 .primaryButton,
@@ -203,6 +216,7 @@
   align-items: start;
   max-width: 1480px;
   width: 100%;
+  min-width: 0;
   margin: 0 auto;
 }
 
@@ -226,6 +240,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
   margin-bottom: 14px;
 }
 
@@ -314,6 +329,7 @@
   color: var(--dsw-alias-label-secondary);
   background: transparent;
   text-align: left;
+  overflow-wrap: anywhere;
 }
 
 .versionButton[data-current] {
@@ -460,7 +476,7 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
-  flex: 1;
+  flex: 1 1 auto;
   cursor: pointer;
   user-select: none;
 }
@@ -475,6 +491,7 @@
 
 .turnPreview {
   overflow: hidden;
+  min-width: 0;
   color: var(--dsw-alias-label-tertiary);
   font-size: 12px;
   line-height: 18px;
@@ -534,6 +551,7 @@
 
 .messageHeader {
   justify-content: flex-start;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -589,12 +607,14 @@
 }
 
 .messageTime {
+  flex: none;
   color: var(--dsw-alias-label-tertiary);
   font-size: 11px;
   line-height: 17px;
 }
 
 .textButton {
+  min-height: 24px;
   margin-left: auto;
   padding: 2px 7px;
   border-radius: 10px;
@@ -620,7 +640,10 @@
 .batchActions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 6px;
+  min-width: 0;
 }
 
 .batchActions .textButton {
@@ -630,6 +653,7 @@
 .messageTextWrapper {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   gap: 2px;
 }
 
@@ -681,9 +705,11 @@
 }
 
 .editorHint {
+  min-width: 0;
   color: var(--dsw-alias-label-tertiary);
   font-size: 11px;
   line-height: 16px;
+  overflow-wrap: anywhere;
 }
 
 .empty {
@@ -697,7 +723,7 @@
 
 @media (max-width: 1000px) {
   .columns {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .versionsPanel {
@@ -707,7 +733,7 @@
 
 @media (max-width: 680px) {
   .root {
-    padding: 16px;
+    padding: 12px;
   }
 
   .pageHeader,
@@ -719,8 +745,29 @@
     align-items: stretch;
   }
 
-  .headerActions {
+  .pageHeader {
+    gap: 14px;
+    margin-bottom: 12px;
+  }
+
+  .title {
+    font-size: 20px;
+    line-height: 28px;
+  }
+
+  .intro {
+    font-size: 12px;
+    line-height: 18px;
+  }
+
+  .headerActions,
+  .actionRow,
+  .cascadeField {
     width: 100%;
+  }
+
+  .actionRow {
+    gap: 8px;
   }
 
   .workspaceField {
@@ -728,9 +775,208 @@
     align-items: stretch;
   }
 
+  .select,
+  .workspaceSelect {
+    width: 100%;
+    height: 44px;
+    min-height: 44px;
+    font-size: 16px;
+  }
+
   .primaryButton,
   .secondaryButton {
     width: 100%;
+    min-height: 44px;
+    font-size: 14px;
+  }
+
+  .versionsPanel,
+  .turnsPanel {
+    padding: 12px;
+    border-radius: 10px;
+  }
+
+  .sectionHeading {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  .turnsPanel .sectionHeading {
+    position: static;
+    z-index: auto;
+    padding: 12px;
+    margin: -12px -12px 10px;
+    border-radius: 10px 10px 0 0;
+    box-shadow: none;
+  }
+
+  .batchActions {
+    flex: 1 1 100%;
+    width: 100%;
+    justify-content: flex-start;
+    gap: 4px;
+  }
+
+  .batchActions .textButton {
+    min-height: 36px;
+    padding: 6px 8px;
+  }
+
+  .changeSummary {
+    flex-wrap: wrap;
+    gap: 4px 8px;
+  }
+
+  .versionItem {
+    padding-left: min(calc(var(--message-edit-depth) * 10px), 28px);
+  }
+
+  .versionButton {
+    gap: 7px;
+    padding: 9px 8px;
+  }
+
+  .versionTitle,
+  .versionMeta {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .versionDiff {
+    font-size: 11px;
+    line-height: 16px;
+  }
+
+  .turnSection {
+    padding: 8px;
+  }
+
+  .turnHeader {
+    position: static;
+    margin: -8px -8px 6px;
+    padding: 8px;
+    box-shadow: none;
+  }
+
+  .turnHeaderLeft {
+    width: 100%;
+    gap: 6px;
+  }
+
+  .turnPreview {
+    flex: 1 1 auto;
+    max-width: none;
+  }
+
+  .turnActions {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 6px;
+  }
+
+  .turnActions .secondaryButton {
+    width: auto;
+    min-height: 38px;
+    flex: 1 1 120px;
+    padding: 0 8px;
+    font-size: 12px;
+  }
+
+  .messageList {
+    gap: 6px;
+  }
+
+  .messageCard {
+    padding: 8px;
+  }
+
+  .messageHeader {
+    align-items: center;
+    gap: 4px;
+  }
+
+  .messageSpacer {
+    display: none;
+  }
+
+  .messageTime {
+    margin-right: auto;
+    font-size: 10px;
+  }
+
+  .textButton {
+    min-height: 36px;
+    margin-left: 0;
+    padding: 6px 9px;
+  }
+
+  .checkbox {
+    width: 18px;
+    height: 18px;
+    margin-right: 3px;
+  }
+
+  .dragHandle {
+    min-width: 28px;
+    min-height: 32px;
+    padding: 8px 4px;
+    margin-right: 0;
+  }
+
+  .messageText {
+    max-height: min(40vh, 220px);
+    font-size: 13px;
+    line-height: 20px;
+  }
+
+  .textarea {
+    min-height: 140px;
+    font-size: 16px;
+    line-height: 22px;
+  }
+
+  .editorActions {
+    gap: 8px;
+  }
+
+  .editorHint {
+    font-size: 12px;
+    line-height: 18px;
+  }
+
+  .empty {
+    padding: 14px;
+  }
+}
+
+@media (max-width: 380px) {
+  .root {
+    padding: 10px;
+  }
+
+  .versionsPanel,
+  .turnsPanel {
+    padding: 10px;
+  }
+
+  .turnsPanel .sectionHeading {
+    padding: 10px;
+    margin: -10px -10px 10px;
+  }
+
+  .turnSection {
+    padding: 6px;
+  }
+
+  .turnHeader {
+    margin: -6px -6px 6px;
+    padding: 8px 6px;
+  }
+
+  .messageCard {
+    padding: 7px;
   }
 }
 
@@ -779,6 +1025,7 @@
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 4px;
+  min-width: 0;
 }
 
 .turnActions .secondaryButton {
@@ -883,3 +1130,30 @@
   border-bottom: 3px solid var(--dsw-alias-brand-primary);
 }
 
+@media (max-width: 680px) {
+  .changeSummary {
+    gap: 4px 8px;
+  }
+
+  .turnActions {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 6px;
+  }
+
+  .turnActions .secondaryButton {
+    min-height: 38px;
+    padding: 0 8px;
+    font-size: 12px;
+  }
+
+  .dragHandle {
+    padding: 8px 4px;
+    margin-right: 0;
+  }
+
+  .collapseTurnButton {
+    min-width: 32px;
+    min-height: 32px;
+  }
+}

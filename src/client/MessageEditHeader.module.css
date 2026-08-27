@@ -2,6 +2,9 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  max-width: 100%;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
 .iconButton,
@@ -12,6 +15,7 @@
   background: transparent;
   font: inherit;
   cursor: pointer;
+  touch-action: manipulation;
 }
 
 .iconButton {
@@ -63,5 +67,19 @@
 @media (max-width: 760px) {
   .counter {
     display: none;
+  }
+
+  .iconButton {
+    width: 36px;
+    height: 36px;
+    font-size: 18px;
+  }
+
+  .rerollButton {
+    height: 36px;
+    min-height: 36px;
+    padding: 0 12px;
+    border-radius: 18px;
+    white-space: nowrap;
   }
 }

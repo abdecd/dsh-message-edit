@@ -5,16 +5,21 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 16px;
   background: var(--dsw-alias-bg-mask, rgba(0, 0, 0, 0.45));
+  overscroll-behavior: contain;
 }
 
 .panel {
-  width: 560px;
+  width: min(560px, 100%);
+  max-height: calc(100vh - 32px);
   box-sizing: border-box;
   padding: 14px 16px;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 10px;
   background: var(--dsw-alias-bg-module-platform);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .title {
@@ -26,6 +31,7 @@
 .input {
   width: 100%;
   min-height: 160px;
+  min-width: 0;
   box-sizing: border-box;
   padding: 10px;
   border: 1px solid var(--dsw-alias-border-l2);
@@ -44,12 +50,18 @@
 }
 
 .footer button {
+  min-height: 34px;
   padding: 6px 14px;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 6px;
   background: var(--dsw-alias-bg-module-hover);
   color: var(--dsw-alias-label-primary);
   cursor: pointer;
+}
+
+.footer button:disabled {
+  cursor: default;
+  opacity: 0.45;
 }
 
 .iconButton {
@@ -64,6 +76,7 @@
   background: transparent;
   color: var(--dsw-alias-label-secondary);
   cursor: pointer;
+  touch-action: manipulation;
 }
 
 .iconButton:hover {
@@ -101,4 +114,57 @@
   color: var(--dsw-alias-label-primary);
   cursor: pointer;
   align-self: flex-end;
+}
+
+@media (max-width: 680px) {
+  .overlay {
+    align-items: center;
+    padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  }
+
+  .panel {
+    width: 100%;
+    max-height: calc(100vh - 24px);
+    max-height: calc(100dvh - 24px);
+    padding: 12px;
+    border-radius: 12px;
+  }
+
+  .title {
+    padding: 4px 0 10px;
+    font-size: 14px;
+    line-height: 20px;
+  }
+
+  .iconButton {
+    width: 32px;
+    height: 32px;
+    padding: 8px;
+  }
+
+  .input {
+    min-height: min(45vh, 280px);
+    font-size: 16px;
+    line-height: 22px;
+  }
+
+  .footer {
+    gap: 8px;
+  }
+
+  .footer button {
+    flex: 1;
+    min-height: 44px;
+    font-size: 14px;
+  }
+
+  .picker {
+    gap: 8px;
+  }
+
+  .pickerItem,
+  .pickerItemActive {
+    min-height: 44px;
+    font-size: 14px;
+  }
 }
