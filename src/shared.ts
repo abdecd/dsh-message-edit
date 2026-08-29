@@ -164,7 +164,8 @@ export interface ForkMessageRow {
   toolName?: string
   callId?: string
   /** Provenance of an original Timeline row. The host uses it to clone the
-   * complete source message/event instead of rebuilding an unchanged row from text. */
+   * complete source message/event when it still matches; stale provenance
+   * falls back to rebuilding the row from text. */
   sourceEventSeq?: number
   sourceBlockIndex?: number
 }

@@ -419,11 +419,16 @@ export function MessageEditTimelineView({
     lastSessionIdRef.current = timeline?.sessionId ?? null
     if (sessionChanged) {
       setForkWorkspaceId('')
+      setSelectedKeys(new Set())
+      setEditing(null)
       setCollapsedSectionIds(new Set(baselineRows.map(r => r.turn !== undefined ? `turn-${String(r.turn)}` : `added-${r.key}`)))
     }
   }, [signature, baselineRows, timeline?.sessionId])
 
-  const rows = draft?.rows ?? baselineRows
+  // Effects run after render. Do not expose the previous session's draft during
+  // that gap: its provenance belongs to a different source log.
+  const draftReady = draft?.signature === signature
+  const rows = draftReady ? (draft?.rows ?? baselineRows) : baselineRows
 
   const updateDraftRows = (nextRows: DraftRow[]): void => {
     setHistory(prev => [...prev.slice(-30), rows])
@@ -460,7 +465,7 @@ export function MessageEditTimelineView({
     return { added, edited, deleted, hasChanges: added + edited + deleted > 0 }
   }, [rows, baseline])
 
-  const busy = state.pending !== null || state.status !== 'ready'
+  const busy = state.pending !== null || state.status !== 'ready' || !draftReady
 
   /** Settle an added row left behind when the editor moves away: an empty
    * buffer discards the row, a filled buffer keeps it in the draft. */

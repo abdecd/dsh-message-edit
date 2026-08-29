@@ -475,15 +475,15 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var InlineMessageEdit_module_css_default = {
+			"title": "Ps3QDa_title",
+			"picker": "Ps3QDa_picker",
+			"iconButton": "Ps3QDa_iconButton",
 			"footer": "Ps3QDa_footer",
 			"input": "Ps3QDa_input",
-			"picker": "Ps3QDa_picker",
+			"panel": "Ps3QDa_panel",
 			"pickerItem": "Ps3QDa_pickerItem",
 			"pickerItemActive": "Ps3QDa_pickerItemActive",
-			"title": "Ps3QDa_title",
-			"overlay": "Ps3QDa_overlay",
-			"iconButton": "Ps3QDa_iconButton",
-			"panel": "Ps3QDa_panel"
+			"overlay": "Ps3QDa_overlay"
 		};
 		//#endregion
 		//#region src/client/InlineMessageEdit.tsx
@@ -780,9 +780,9 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var MessageEditHeader_module_css_default = {
-			"counter": "ovpcJa_counter",
 			"iconButton": "ovpcJa_iconButton",
 			"root": "ovpcJa_root",
+			"counter": "ovpcJa_counter",
 			"rerollButton": "ovpcJa_rerollButton"
 		};
 		//#endregion
@@ -858,74 +858,74 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var MessageEditTimelineView_module_css_default = {
-			"intro": "hbVeaa_intro",
-			"turnPreview": "hbVeaa_turnPreview",
-			"batchActions": "hbVeaa_batchActions",
-			"expandButton": "hbVeaa_expandButton",
-			"headerActions": "hbVeaa_headerActions",
-			"select": "hbVeaa_select",
-			"versionMeta": "hbVeaa_versionMeta",
-			"textButton": "hbVeaa_textButton",
-			"workspaceSelect": "hbVeaa_workspaceSelect",
-			"sectionHeading": "hbVeaa_sectionHeading",
-			"versionList": "hbVeaa_versionList",
-			"turnList": "hbVeaa_turnList",
-			"pathBadge": "hbVeaa_pathBadge",
-			"versionLine": "hbVeaa_versionLine",
-			"versionMain": "hbVeaa_versionMain",
-			"root": "hbVeaa_root",
-			"currentBadge": "hbVeaa_currentBadge",
-			"messageHeader": "hbVeaa_messageHeader",
-			"messageTime": "hbVeaa_messageTime",
-			"turnTitle": "hbVeaa_turnTitle",
-			"messageTextWrapper": "hbVeaa_messageTextWrapper",
-			"turnActions": "hbVeaa_turnActions",
-			"changeChip": "hbVeaa_changeChip",
-			"newBadge": "hbVeaa_newBadge",
-			"composerFooter": "hbVeaa_composerFooter",
-			"pageHeader": "hbVeaa_pageHeader",
-			"columns": "hbVeaa_columns",
-			"title": "hbVeaa_title",
-			"versionDiff": "hbVeaa_versionDiff",
-			"turnHeader": "hbVeaa_turnHeader",
-			"kindBadge": "hbVeaa_kindBadge",
-			"messageSpacer": "hbVeaa_messageSpacer",
-			"turnsPanel": "hbVeaa_turnsPanel",
-			"versionItem": "hbVeaa_versionItem",
-			"secondaryButton": "hbVeaa_secondaryButton",
-			"workspaceField": "hbVeaa_workspaceField",
 			"textarea": "hbVeaa_textarea",
-			"effectDepth": "hbVeaa_effectDepth",
-			"editorActions": "hbVeaa_editorActions",
-			"effectControls": "hbVeaa_effectControls",
-			"dragHandle": "hbVeaa_dragHandle",
-			"turnHeaderLeft": "hbVeaa_turnHeaderLeft",
-			"collapseTurnButton": "hbVeaa_collapseTurnButton",
-			"checkbox": "hbVeaa_checkbox",
-			"count": "hbVeaa_count",
-			"error": "hbVeaa_error",
-			"notice": "hbVeaa_notice",
-			"versionTitle": "hbVeaa_versionTitle",
-			"messageText": "hbVeaa_messageText",
-			"emptyState": "hbVeaa_emptyState",
-			"primaryButton": "hbVeaa_primaryButton",
-			"turnSection": "hbVeaa_turnSection",
-			"messageCard": "hbVeaa_messageCard",
-			"effectButtons": "hbVeaa_effectButtons",
-			"versionButton": "hbVeaa_versionButton",
-			"subtitle": "hbVeaa_subtitle",
-			"cascadeField": "hbVeaa_cascadeField",
+			"workspaceSelect": "hbVeaa_workspaceSelect",
+			"messageTime": "hbVeaa_messageTime",
+			"turnList": "hbVeaa_turnList",
+			"columns": "hbVeaa_columns",
 			"messageList": "hbVeaa_messageList",
-			"editedBadge": "hbVeaa_editedBadge",
-			"versionDot": "hbVeaa_versionDot",
+			"currentBadge": "hbVeaa_currentBadge",
+			"effectButtons": "hbVeaa_effectButtons",
+			"turnActions": "hbVeaa_turnActions",
+			"checkbox": "hbVeaa_checkbox",
+			"expandButton": "hbVeaa_expandButton",
+			"messageText": "hbVeaa_messageText",
+			"editorActions": "hbVeaa_editorActions",
+			"dragHandle": "hbVeaa_dragHandle",
+			"pageHeader": "hbVeaa_pageHeader",
+			"primaryButton": "hbVeaa_primaryButton",
+			"versionsPanel": "hbVeaa_versionsPanel",
+			"turnsPanel": "hbVeaa_turnsPanel",
+			"subtitle": "hbVeaa_subtitle",
+			"versionItem": "hbVeaa_versionItem",
+			"collapseTurnButton": "hbVeaa_collapseTurnButton",
+			"effectControls": "hbVeaa_effectControls",
+			"textButton": "hbVeaa_textButton",
+			"intro": "hbVeaa_intro",
+			"root": "hbVeaa_root",
+			"versionButton": "hbVeaa_versionButton",
+			"versionTitle": "hbVeaa_versionTitle",
+			"secondaryButton": "hbVeaa_secondaryButton",
+			"emptyState": "hbVeaa_emptyState",
+			"turnTitle": "hbVeaa_turnTitle",
 			"status": "hbVeaa_status",
-			"editor": "hbVeaa_editor",
-			"actionRow": "hbVeaa_actionRow",
-			"empty": "hbVeaa_empty",
+			"select": "hbVeaa_select",
+			"versionDot": "hbVeaa_versionDot",
+			"workspaceField": "hbVeaa_workspaceField",
 			"messageTextCollapsed": "hbVeaa_messageTextCollapsed",
+			"actionRow": "hbVeaa_actionRow",
+			"messageTextWrapper": "hbVeaa_messageTextWrapper",
+			"cascadeField": "hbVeaa_cascadeField",
+			"empty": "hbVeaa_empty",
+			"versionList": "hbVeaa_versionList",
+			"versionMain": "hbVeaa_versionMain",
 			"editorHint": "hbVeaa_editorHint",
-			"changeSummary": "hbVeaa_changeSummary",
-			"versionsPanel": "hbVeaa_versionsPanel"
+			"batchActions": "hbVeaa_batchActions",
+			"messageCard": "hbVeaa_messageCard",
+			"pathBadge": "hbVeaa_pathBadge",
+			"headerActions": "hbVeaa_headerActions",
+			"turnHeaderLeft": "hbVeaa_turnHeaderLeft",
+			"editedBadge": "hbVeaa_editedBadge",
+			"effectDepth": "hbVeaa_effectDepth",
+			"versionLine": "hbVeaa_versionLine",
+			"messageHeader": "hbVeaa_messageHeader",
+			"notice": "hbVeaa_notice",
+			"changeChip": "hbVeaa_changeChip",
+			"sectionHeading": "hbVeaa_sectionHeading",
+			"newBadge": "hbVeaa_newBadge",
+			"error": "hbVeaa_error",
+			"title": "hbVeaa_title",
+			"turnPreview": "hbVeaa_turnPreview",
+			"versionDiff": "hbVeaa_versionDiff",
+			"kindBadge": "hbVeaa_kindBadge",
+			"editor": "hbVeaa_editor",
+			"messageSpacer": "hbVeaa_messageSpacer",
+			"turnHeader": "hbVeaa_turnHeader",
+			"turnSection": "hbVeaa_turnSection",
+			"versionMeta": "hbVeaa_versionMeta",
+			"composerFooter": "hbVeaa_composerFooter",
+			"count": "hbVeaa_count",
+			"changeSummary": "hbVeaa_changeSummary"
 		};
 		//#endregion
 		//#region src/client/MessageEditTimelineView.tsx
@@ -1238,6 +1238,8 @@ window.__ModuleLoader__.load({
 				lastSessionIdRef.current = timeline?.sessionId ?? null;
 				if (sessionChanged) {
 					setForkWorkspaceId("");
+					setSelectedKeys(/* @__PURE__ */ new Set());
+					setEditing(null);
 					setCollapsedSectionIds(new Set(baselineRows.map((r) => r.turn !== void 0 ? `turn-${String(r.turn)}` : `added-${r.key}`)));
 				}
 			}, [
@@ -1245,7 +1247,8 @@ window.__ModuleLoader__.load({
 				baselineRows,
 				timeline?.sessionId
 			]);
-			const rows = draft?.rows ?? baselineRows;
+			const draftReady = draft?.signature === signature;
+			const rows = draftReady ? draft?.rows ?? baselineRows : baselineRows;
 			const updateDraftRows = (nextRows) => {
 				setHistory((prev) => [...prev.slice(-30), rows]);
 				setDraft({
@@ -1291,7 +1294,7 @@ window.__ModuleLoader__.load({
 					hasChanges: added + edited + deleted > 0
 				};
 			}, [rows, baseline]);
-			const busy = state.pending !== null || state.status !== "ready";
+			const busy = state.pending !== null || state.status !== "ready" || !draftReady;
 			/** Settle an added row left behind when the editor moves away: an empty
 			* buffer discards the row, a filled buffer keeps it in the draft. */
 			const settleAddedRow = (current, leaving) => {

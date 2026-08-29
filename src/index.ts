@@ -583,29 +583,38 @@ function rerollPlan(sessionId: string, turns: readonly ClosedTurn[]): OperationP
   throw new Error('当前会话没有可重生成的已落定助手回复。')
 }
 
-/** Resolve client provenance only against the source session named by the operation. */
+/**
+ * Resolve optional client provenance against the source session named by the
+ * operation. Provenance is an optimization for retaining complete messages;
+ * an old tab, a version switch, or a stale selection can make it point at a
+ * different log. In that case the caller must rebuild the row from its text.
+ */
 function sourceEvent(row: ForkMessageRow, events: readonly SessionEvent[]): SessionEvent | undefined {
   if (row.sourceEventSeq === undefined) return undefined
-  const event = events[row.sourceEventSeq]
-  if (event === undefined || event.seq !== row.sourceEventSeq) {
-    throw new Error(`Fork 行引用的源事件 ${row.sourceEventSeq} 不存在。`)
-  }
-  return event
+  const indexed = events[row.sourceEventSeq]
+  if (indexed?.seq === row.sourceEventSeq) return indexed
+  return events.find(event => event.seq === row.sourceEventSeq)
 }
 
 function sourceUserMessage(
   row: ForkMessageRow,
   events: readonly SessionEvent[],
-  expectedSource: 'user' | 'plugin',
+  expectedSource: 'user' | 'context',
 ): UserMessage | undefined {
   const event = sourceEvent(row, events)
-  if (event === undefined) return undefined
-  if (event.type !== 'user/message' || event.data.source.kind !== expectedSource) {
-    throw new Error(`Fork 行 ${row.sourceEventSeq} 的来源不是预期的用户消息。`)
-  }
+  if (event?.type !== 'user/message') return undefined
+
+  // Context producers can extend MessageSourceMap. Keep any non-user
+  // user/message source intact instead of rejecting newer source kinds.
+  const sourceKind = event.data.source.kind
+  const matches = expectedSource === 'user'
+    ? sourceKind === 'user'
+    : sourceKind !== 'user'
+  if (!matches) return undefined
+
   const index = row.sourceBlockIndex
   const block = index === undefined ? undefined : event.data.content[index]
-  if (block?.type !== 'text') throw new Error('Fork 行引用的用户文本块不存在。')
+  if (block?.type !== 'text') return undefined
   if (block.text === row.text) return event.data
   return {
     ...event.data,
@@ -621,8 +630,7 @@ function sourceHeader(
   route?: { provider: string; model: string },
 ): EpochHeader | undefined {
   const event = sourceEvent(row, events)
-  if (event === undefined) return undefined
-  if (event.type !== 'request/header') throw new Error('Fork 行引用的来源不是 request/header。')
+  if (event?.type !== 'request/header') return undefined
   const base = event.data.header
   const config = route !== undefined
     ? { ...base.config, provider: route.provider, model: route.model }
@@ -675,8 +683,7 @@ function sourceToolResult(
   events: readonly SessionEvent[],
 ): Pick<ManualTurnItem, 'toolResult' | 'toolResultError' | 'toolResultMeta'> | undefined {
   const event = sourceEvent(row, events)
-  if (event === undefined) return undefined
-  if (event.type !== 'tool/result') throw new Error('Fork 行引用的来源不是 tool/result。')
+  if (event?.type !== 'tool/result') return undefined
   const original = event.data.message
   if (formatToolResultText(event) === row.text) {
     return {
@@ -869,7 +876,7 @@ function groupForkRowsToTurns(
       flushAssistant(current)
       current.items.push({
         kind: 'user',
-        user: sourceUserMessage(row, events, 'plugin') ?? newInjectedUserMessage(row.text),
+        user: sourceUserMessage(row, events, 'context') ?? newInjectedUserMessage(row.text),
       })
     } else if (row.kind === 'tool.result') {
       flushAssistant(current)

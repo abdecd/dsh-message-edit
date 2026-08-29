@@ -375,20 +375,26 @@ function rerollPlan(sessionId, turns) {
 	}
 	throw new Error("当前会话没有可重生成的已落定助手回复。");
 }
-/** Resolve client provenance only against the source session named by the operation. */
+/**
+* Resolve optional client provenance against the source session named by the
+* operation. Provenance is an optimization for retaining complete messages;
+* an old tab, a version switch, or a stale selection can make it point at a
+* different log. In that case the caller must rebuild the row from its text.
+*/
 function sourceEvent(row, events) {
 	if (row.sourceEventSeq === void 0) return void 0;
-	const event = events[row.sourceEventSeq];
-	if (event === void 0 || event.seq !== row.sourceEventSeq) throw new Error(`Fork 行引用的源事件 ${row.sourceEventSeq} 不存在。`);
-	return event;
+	const indexed = events[row.sourceEventSeq];
+	if (indexed?.seq === row.sourceEventSeq) return indexed;
+	return events.find((event) => event.seq === row.sourceEventSeq);
 }
 function sourceUserMessage(row, events, expectedSource) {
 	const event = sourceEvent(row, events);
-	if (event === void 0) return void 0;
-	if (event.type !== "user/message" || event.data.source.kind !== expectedSource) throw new Error(`Fork 行 ${row.sourceEventSeq} 的来源不是预期的用户消息。`);
+	if (event?.type !== "user/message") return void 0;
+	const sourceKind = event.data.source.kind;
+	if (!(expectedSource === "user" ? sourceKind === "user" : sourceKind !== "user")) return void 0;
 	const index = row.sourceBlockIndex;
 	const block = index === void 0 ? void 0 : event.data.content[index];
-	if (block?.type !== "text") throw new Error("Fork 行引用的用户文本块不存在。");
+	if (block?.type !== "text") return void 0;
 	if (block.text === row.text) return event.data;
 	return {
 		...event.data,
@@ -400,8 +406,7 @@ function sourceUserMessage(row, events, expectedSource) {
 }
 function sourceHeader(row, events, route) {
 	const event = sourceEvent(row, events);
-	if (event === void 0) return void 0;
-	if (event.type !== "request/header") throw new Error("Fork 行引用的来源不是 request/header。");
+	if (event?.type !== "request/header") return void 0;
 	const base = event.data.header;
 	const config = route !== void 0 ? {
 		...base.config,
@@ -447,8 +452,7 @@ function sourceLatestContext(events, route) {
 }
 function sourceToolResult(row, events) {
 	const event = sourceEvent(row, events);
-	if (event === void 0) return void 0;
-	if (event.type !== "tool/result") throw new Error("Fork 行引用的来源不是 tool/result。");
+	if (event?.type !== "tool/result") return void 0;
 	const original = event.data.message;
 	if (formatToolResultText(event) === row.text) return {
 		toolResult: original,
@@ -650,7 +654,7 @@ function groupForkRowsToTurns(rows, route, events) {
 			flushAssistant(current);
 			current.items.push({
 				kind: "user",
-				user: sourceUserMessage(row, events, "plugin") ?? newInjectedUserMessage(row.text)
+				user: sourceUserMessage(row, events, "context") ?? newInjectedUserMessage(row.text)
 			});
 		} else if (row.kind === "tool.result") {
 			flushAssistant(current);
