@@ -120,11 +120,13 @@ export interface MessageEditTimeline {
 }
 
 /** Model selection forwarded from the browser composer so one re-execution
- * runs the model the chat input currently targets instead of the last model
- * recorded in the source history. Absent keeps the history-derived route. */
+ * runs the model and reasoning effort the chat input currently targets instead
+ * of the last request recorded in the source history. When a route is present,
+ * an absent effort explicitly restores the selected model's provider default. */
 export interface ModelRoute {
   provider: string
   model: string
+  reasoningEffort?: string
 }
 
 /** Edit one text/reasoning block and regenerate from its turn boundary. */

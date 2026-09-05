@@ -52,9 +52,9 @@ export interface MessageEditFace {
 }
 
 /** The selection the chat input currently targets for one session: the same
- * value the composer's model dropdown renders and the next ordinary prompt
- * would use. Structural view of the `session.models` wire face so the client
- * half stays free of value imports into the connection package. */
+ * model and reasoning effort the composer's controls use for the next ordinary
+ * prompt. Structural view of the `session.models` wire face so the client half
+ * stays free of value imports into the connection package. */
 interface ComposerModelSelection {
   provider: string
   model: string
@@ -517,7 +517,17 @@ export class MessageEditController {
       if (current === undefined) return undefined
       if (typeof current.provider !== 'string' || current.provider.length === 0) return undefined
       if (typeof current.model !== 'string' || current.model.length === 0) return undefined
-      return { provider: current.provider, model: current.model }
+      const reasoningEffort = current.reasoningEffort
+      if (reasoningEffort !== undefined && (typeof reasoningEffort !== 'string' || reasoningEffort.length === 0)) {
+        return undefined
+      }
+      return {
+        provider: current.provider,
+        model: current.model,
+        // An omitted effort is meaningful: it asks the selected model to use
+        // its provider default instead of inheriting the historical effort.
+        ...reasoningEffort === undefined ? {} : { reasoningEffort },
+      }
     } catch {
       return undefined
     }

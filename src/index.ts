@@ -1,6 +1,6 @@
 /** Host half of Message Edit: turn-atomic forks and structurally reversible versions. */
 import type { Context } from '@deepseek-ai/cordis'
-import type { Agent, AgentHandle, AgentOptions, AgentSetup } from '@deepseek-ai/dsh-agent'
+import { installModelSelection, type Agent, type AgentHandle, type AgentOptions, type AgentSetup, type ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import type { PresetBearingSession } from '@deepseek-ai/dsh-agent-presets'
 import {
   KNOWN_SESSION_EVENT_TYPES,
@@ -24,6 +24,7 @@ import type {
   CallId,
   ContentBlock,
   MessageId,
+  ReasoningEffortId,
   ToolResultMessage,
   UserMessage,
 } from '@deepseek-ai/dsh-llm'
@@ -624,48 +625,71 @@ function sourceUserMessage(
   } as UserMessage
 }
 
+function routedConfig(
+  base: EpochHeader['config'],
+  route: ModelRoute,
+): EpochHeader['config'] {
+  // A composer route owns the effort as well as provider/model. Remove the
+  // historical effort first so an omitted selected effort means provider
+  // default, rather than silently inheriting the old model's effort.
+  const { reasoningEffort: _historicalEffort, ...withoutHistoricalEffort } = base
+  return {
+    ...withoutHistoricalEffort,
+    provider: route.provider,
+    model: route.model,
+    ...route.reasoningEffort === undefined
+      ? {}
+      : { reasoningEffort: route.reasoningEffort as ReasoningEffortId },
+  }
+}
+
+function routedHeader(
+  base: EpochHeader,
+  route: ModelRoute,
+  system?: string,
+): EpochHeader {
+  const config = routedConfig(base.config, route)
+  const routeChanged = base.config.provider !== config.provider
+    || base.config.model !== config.model
+    || base.config.reasoningEffort !== config.reasoningEffort
+  // Adapter-default markers describe the old model/config and must not be
+  // copied into a manually rebuilt header after the route changes.
+  const header = routeChanged
+    ? (({ adapterDefaults: _historicalDefaults, ...withoutHistoricalDefaults }) => withoutHistoricalDefaults)(base)
+    : base
+  return {
+    ...header,
+    config,
+    ...system === undefined ? {} : { system },
+  }
+}
+
 function sourceHeader(
   row: ForkMessageRow,
   events: readonly SessionEvent[],
-  route?: { provider: string; model: string },
+  route?: ModelRoute,
 ): EpochHeader | undefined {
   const event = sourceEvent(row, events)
   if (event?.type !== 'request/header') return undefined
   const base = event.data.header
-  const config = route !== undefined
-    ? { ...base.config, provider: route.provider, model: route.model }
-    : base.config
-  if (base.system === row.text && config === base.config) return base
-  return { ...base, config, system: row.text }
+  if (route === undefined) return base.system === row.text ? base : { ...base, system: row.text }
+  const routed = routedHeader(base, route, row.text)
+  return routed === base ? base : routed
 }
 
 function sourceLatestHeader(
   events: readonly SessionEvent[],
-  route: { provider: string; model: string },
+  route: ModelRoute,
   fallbackSystem?: string,
 ): EpochHeader {
   const lastEvent = events.findLast((event): event is SessionEvent<'request/header'> => event.type === 'request/header')
-  if (lastEvent !== undefined) {
-    const base = lastEvent.data.header
-    return {
-      ...base,
-      config: {
-        ...base.config,
-        provider: route.provider,
-        model: route.model,
-      },
-      ...fallbackSystem !== undefined ? { system: fallbackSystem } : {},
-    }
-  }
-  return {
-    config: { provider: route.provider, model: route.model },
-    ...fallbackSystem !== undefined && fallbackSystem.length > 0 ? { system: fallbackSystem } : {},
-  }
+  if (lastEvent !== undefined) return routedHeader(lastEvent.data.header, route, fallbackSystem)
+  return routedHeader({ config: { provider: route.provider, model: route.model } }, route, fallbackSystem)
 }
 
 function sourceLatestContext(
   events: readonly SessionEvent[],
-  route: { provider: string; model: string },
+  route: ModelRoute,
 ): RequestContext | undefined {
   const lastEvent = events.findLast((event): event is SessionEvent<'request/context'> => event.type === 'request/context')
   if (lastEvent !== undefined) {
@@ -717,7 +741,7 @@ function sourceToolResult(
 function fallbackAssistantForToolResult(
   row: ForkMessageRow,
   events: readonly SessionEvent[],
-  route: { provider: string; model: string },
+  route: ModelRoute,
 ): AssistantMessage | undefined {
   const resultEvent = sourceEvent(row, events)
   const result = resultEvent?.type === 'tool/result' ? resultEvent : undefined
@@ -772,7 +796,7 @@ function fallbackAssistantForToolResult(
  * messages for unchanged/provenanced rows. New rows alone use text reconstruction. */
 function groupForkRowsToTurns(
   rows: readonly ForkMessageRow[],
-  route: { provider: string; model: string },
+  route: ModelRoute,
   events: readonly SessionEvent[],
 ): ManualTurn[] {
   const turns: ManualTurn[] = []
@@ -863,7 +887,7 @@ function groupForkRowsToTurns(
     } else if (row.kind === 'system') {
       flushAssistant(current)
       const header = sourceHeader(row, events, route) ?? {
-        config: { provider: route.provider, model: route.model },
+        config: routedConfig({ provider: route.provider, model: route.model }, route),
         system: row.text,
       }
       const context = sourceLatestContext(events, route)
@@ -981,9 +1005,13 @@ function modelRoute(
   events: readonly SessionEvent[],
   fallback?: AgentOptions,
   preferred?: ModelRoute,
-): { provider: string; model: string } {
+): ModelRoute {
   if (preferred?.provider && preferred?.model) {
-    return { provider: preferred.provider, model: preferred.model }
+    return {
+      provider: preferred.provider,
+      model: preferred.model,
+      ...preferred.reasoningEffort === undefined ? {} : { reasoningEffort: preferred.reasoningEffort },
+    }
   }
   const config = events.findLast(event => event.type === 'request/header')?.data.header.config
   const provider = preferred?.provider ?? config?.provider ?? fallback?.provider
@@ -991,7 +1019,11 @@ function modelRoute(
   if (provider === undefined || provider.length === 0 || model === undefined || model.length === 0) {
     throw new Error('无法从会话历史解析模型路由。')
   }
-  return { provider, model }
+  return {
+    provider,
+    model,
+    ...config?.reasoningEffort === undefined ? {} : { reasoningEffort: config.reasoningEffort },
+  }
 }
 
 function agentOptions(
@@ -1000,13 +1032,30 @@ function agentOptions(
   preferred?: ModelRoute,
 ): AgentOptions {
   /* A composer-forwarded route wins over the last logged request/header so a
-     re-execution follows the model the chat input currently targets. */
+     re-execution follows the model and effort the chat input currently targets. */
   const route = modelRoute(events, fallback, preferred)
   const maxTokens = events.findLast(event => event.type === 'request/header')?.data.header.config?.maxTokens
     ?? fallback?.maxTokens
   return {
-    ...route,
+    provider: route.provider,
+    model: route.model,
     ...maxTokens === undefined ? {} : { maxTokens },
+  }
+}
+
+/** Install a one-agent selection so the first and every preserved follow-up
+ * request use the same composer model/effort. */
+function modelSelectionOf(route: ModelRoute | undefined): ModelSelectionRef | undefined {
+  if (route === undefined) return undefined
+  return {
+    current: {
+      provider: route.provider,
+      model: route.model,
+      ...route.reasoningEffort === undefined
+        ? {}
+        : { reasoningEffort: route.reasoningEffort as ReasoningEffortId },
+    },
+    assembled: undefined,
   }
 }
 
@@ -1259,6 +1308,7 @@ async function createVersionAgent(
   childId: SessionId,
   plan: OperationPlan,
   options: AgentOptions,
+  route?: ModelRoute,
   title?: string,
   cwd?: string,
 ): Promise<AgentHandle> {
@@ -1268,12 +1318,20 @@ async function createVersionAgent(
   }
   const presets = ctx.get('agentPresets')
   const presetId = sessionPreset(source)
+  const selection = modelSelectionOf(route)
   let agentPreset: string | undefined
   let setup: AgentSetup | undefined
   if (presets !== undefined && presetId !== undefined) {
     const resolved = (await presets.resolve(presetId)).id
     agentPreset = resolved
-    setup = async (agentCtx) => { await presets.mount(agentCtx, resolved) }
+    setup = async (agentCtx) => {
+      // Install before mounting the preset, matching the normal Agent setup
+      // order and ensuring preset request listeners see the selected route.
+      if (selection !== undefined) installModelSelection(agentCtx, selection)
+      await presets.mount(agentCtx, resolved)
+    }
+  } else if (selection !== undefined) {
+    setup = (agentCtx) => { installModelSelection(agentCtx, selection) }
   }
   const childCwd = cwd ?? source.header.cwd
   const child = await ctx.agents.create({
@@ -1352,7 +1410,16 @@ async function runOperation(ctx: Context, operation: MessageEditOperation): Prom
         : undefined
       const plan = planOperation(operation, events, source.options, operation.route)
       const options = agentOptions(events, source.options, operation.route)
-      const child = await createVersionAgent(ctx, source.session, childId, plan, options, title, targetCwd)
+      const child = await createVersionAgent(
+        ctx,
+        source.session,
+        childId,
+        plan,
+        options,
+        operation.route,
+        title,
+        targetCwd,
+      )
       inverses.push(() => child.dispose())
 
       if (workspace !== undefined) {
@@ -1620,15 +1687,23 @@ function cascadeOf(value: unknown): CascadePolicy {
   return value
 }
 
-/** Optional composer-forwarded model selection; absence keeps the logged route. */
+/** Optional composer-forwarded model/effort selection; absence keeps the logged route. */
 function modelRouteOf(value: unknown): ModelRoute | undefined {
   if (value === undefined) return undefined
   const record = objectValue(value)
   const provider = record['provider']
   const model = record['model']
+  const reasoningEffort = record['reasoningEffort']
   if (typeof provider !== 'string' || provider.length === 0) throw new TypeError('route.provider 必须是非空字符串。')
   if (typeof model !== 'string' || model.length === 0) throw new TypeError('route.model 必须是非空字符串。')
-  return { provider, model }
+  if (reasoningEffort !== undefined && (typeof reasoningEffort !== 'string' || reasoningEffort.length === 0)) {
+    throw new TypeError('route.reasoningEffort 必须是非空字符串。')
+  }
+  return {
+    provider,
+    model,
+    ...reasoningEffort === undefined ? {} : { reasoningEffort },
+  }
 }
 
 function decodeOperation(value: unknown): MessageEditOperation {

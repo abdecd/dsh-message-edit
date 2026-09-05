@@ -1,3 +1,4 @@
+import { installModelSelection } from "@deepseek-ai/dsh-agent";
 import { KNOWN_SESSION_EVENT_TYPES } from "@deepseek-ai/dsh-session";
 //#region src/shared.ts
 /** Same-origin endpoint owned by the Message Edit host plugin. */
@@ -404,43 +405,41 @@ function sourceUserMessage(row, events, expectedSource) {
 		} : candidate)
 	};
 }
+function routedConfig(base, route) {
+	const { reasoningEffort: _historicalEffort, ...withoutHistoricalEffort } = base;
+	return {
+		...withoutHistoricalEffort,
+		provider: route.provider,
+		model: route.model,
+		...route.reasoningEffort === void 0 ? {} : { reasoningEffort: route.reasoningEffort }
+	};
+}
+function routedHeader(base, route, system) {
+	const config = routedConfig(base.config, route);
+	return {
+		...base.config.provider !== config.provider || base.config.model !== config.model || base.config.reasoningEffort !== config.reasoningEffort ? (({ adapterDefaults: _historicalDefaults, ...withoutHistoricalDefaults }) => withoutHistoricalDefaults)(base) : base,
+		config,
+		...system === void 0 ? {} : { system }
+	};
+}
 function sourceHeader(row, events, route) {
 	const event = sourceEvent(row, events);
 	if (event?.type !== "request/header") return void 0;
 	const base = event.data.header;
-	const config = route !== void 0 ? {
-		...base.config,
-		provider: route.provider,
-		model: route.model
-	} : base.config;
-	if (base.system === row.text && config === base.config) return base;
-	return {
+	if (route === void 0) return base.system === row.text ? base : {
 		...base,
-		config,
 		system: row.text
 	};
+	const routed = routedHeader(base, route, row.text);
+	return routed === base ? base : routed;
 }
 function sourceLatestHeader(events, route, fallbackSystem) {
 	const lastEvent = events.findLast((event) => event.type === "request/header");
-	if (lastEvent !== void 0) {
-		const base = lastEvent.data.header;
-		return {
-			...base,
-			config: {
-				...base.config,
-				provider: route.provider,
-				model: route.model
-			},
-			...fallbackSystem !== void 0 ? { system: fallbackSystem } : {}
-		};
-	}
-	return {
-		config: {
-			provider: route.provider,
-			model: route.model
-		},
-		...fallbackSystem !== void 0 && fallbackSystem.length > 0 ? { system: fallbackSystem } : {}
-	};
+	if (lastEvent !== void 0) return routedHeader(lastEvent.data.header, route, fallbackSystem);
+	return routedHeader({ config: {
+		provider: route.provider,
+		model: route.model
+	} }, route, fallbackSystem);
 }
 function sourceLatestContext(events, route) {
 	const lastEvent = events.findLast((event) => event.type === "request/context");
@@ -638,10 +637,10 @@ function groupForkRowsToTurns(rows, route, events) {
 		} else if (row.kind === "system") {
 			flushAssistant(current);
 			const header = sourceHeader(row, events, route) ?? {
-				config: {
+				config: routedConfig({
 					provider: route.provider,
 					model: route.model
-				},
+				}, route),
 				system: row.text
 			};
 			const context = sourceLatestContext(events, route);
@@ -737,7 +736,8 @@ function planOperation(operation, events, fallback, preferred) {
 function modelRoute(events, fallback, preferred) {
 	if (preferred?.provider && preferred?.model) return {
 		provider: preferred.provider,
-		model: preferred.model
+		model: preferred.model,
+		...preferred.reasoningEffort === void 0 ? {} : { reasoningEffort: preferred.reasoningEffort }
 	};
 	const config = events.findLast((event) => event.type === "request/header")?.data.header.config;
 	const provider = preferred?.provider ?? config?.provider ?? fallback?.provider;
@@ -745,15 +745,30 @@ function modelRoute(events, fallback, preferred) {
 	if (provider === void 0 || provider.length === 0 || model === void 0 || model.length === 0) throw new Error("无法从会话历史解析模型路由。");
 	return {
 		provider,
-		model
+		model,
+		...config?.reasoningEffort === void 0 ? {} : { reasoningEffort: config.reasoningEffort }
 	};
 }
 function agentOptions(events, fallback, preferred) {
 	const route = modelRoute(events, fallback, preferred);
 	const maxTokens = events.findLast((event) => event.type === "request/header")?.data.header.config?.maxTokens ?? fallback?.maxTokens;
 	return {
-		...route,
+		provider: route.provider,
+		model: route.model,
 		...maxTokens === void 0 ? {} : { maxTokens }
+	};
+}
+/** Install a one-agent selection so the first and every preserved follow-up
+* request use the same composer model/effort. */
+function modelSelectionOf(route) {
+	if (route === void 0) return void 0;
+	return {
+		current: {
+			provider: route.provider,
+			model: route.model,
+			...route.reasoningEffort === void 0 ? {} : { reasoningEffort: route.reasoningEffort }
+		},
+		assembled: void 0
 	};
 }
 async function withSourceAgent(ctx, sessionId, operation) {
@@ -944,20 +959,24 @@ function resolveSourceTitle(ctx, source, proposedTitle) {
 		}
 	}
 }
-async function createVersionAgent(ctx, source, childId, plan, options, title, cwd) {
+async function createVersionAgent(ctx, source, childId, plan, options, route, title, cwd) {
 	const seed = versionSeed(source, plan);
 	if (title !== void 0 && (plan.boundary === -1 || plan.version.effect.operation === "fork")) appendLogSeedEvent(seed.events, "session/title", { title });
 	const presets = ctx.get("agentPresets");
 	const presetId = sessionPreset(source);
+	const selection = modelSelectionOf(route);
 	let agentPreset;
 	let setup;
 	if (presets !== void 0 && presetId !== void 0) {
 		const resolved = (await presets.resolve(presetId)).id;
 		agentPreset = resolved;
 		setup = async (agentCtx) => {
+			if (selection !== void 0) installModelSelection(agentCtx, selection);
 			await presets.mount(agentCtx, resolved);
 		};
-	}
+	} else if (selection !== void 0) setup = (agentCtx) => {
+		installModelSelection(agentCtx, selection);
+	};
 	const childCwd = cwd ?? source.header.cwd;
 	const child = await ctx.agents.create({
 		sessionId: childId,
@@ -1017,7 +1036,7 @@ async function runOperation(ctx, operation) {
 			const targetCwd = operation.action === "fork" && operation.workspaceId !== void 0 ? workspace?.path : void 0;
 			const plan = planOperation(operation, events, source.options, operation.route);
 			const options = agentOptions(events, source.options, operation.route);
-			const child = await createVersionAgent(ctx, source.session, childId, plan, options, title, targetCwd);
+			const child = await createVersionAgent(ctx, source.session, childId, plan, options, operation.route, title, targetCwd);
 			inverses.push(() => child.dispose());
 			if (workspace !== void 0) {
 				await workspace.attachSession(childId);
@@ -1229,17 +1248,20 @@ function cascadeOf(value) {
 	if (value !== "truncate" && value !== "preserve") throw new TypeError("cascade 必须是 truncate 或 preserve。");
 	return value;
 }
-/** Optional composer-forwarded model selection; absence keeps the logged route. */
+/** Optional composer-forwarded model/effort selection; absence keeps the logged route. */
 function modelRouteOf(value) {
 	if (value === void 0) return void 0;
 	const record = objectValue(value);
 	const provider = record["provider"];
 	const model = record["model"];
+	const reasoningEffort = record["reasoningEffort"];
 	if (typeof provider !== "string" || provider.length === 0) throw new TypeError("route.provider 必须是非空字符串。");
 	if (typeof model !== "string" || model.length === 0) throw new TypeError("route.model 必须是非空字符串。");
+	if (reasoningEffort !== void 0 && (typeof reasoningEffort !== "string" || reasoningEffort.length === 0)) throw new TypeError("route.reasoningEffort 必须是非空字符串。");
 	return {
 		provider,
-		model
+		model,
+		...reasoningEffort === void 0 ? {} : { reasoningEffort }
 	};
 }
 function decodeOperation(value) {
