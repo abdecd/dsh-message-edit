@@ -937,13 +937,48 @@ function versionSeed(source, plan) {
 		inheritedLength
 	};
 }
-function sessionPreset(session) {
-	const events = session.snapshotEvents();
+function presetIdFromEvents(events, fallback) {
 	for (let index = events.length - 1; index >= 0; index -= 1) {
 		const event = events[index];
-		if (event?.type === "agent-preset/selected") return event.data?.agentPreset;
+		if (event?.type !== "agent-preset/selected") continue;
+		const selected = event.data?.agentPreset;
+		if (typeof selected === "string" && selected.length > 0) return selected;
 	}
-	return session.header.agentPreset;
+	return typeof fallback === "string" && fallback.length > 0 ? fallback : void 0;
+}
+function sessionPreset(session) {
+	return presetIdFromEvents(session.snapshotEvents(), session.header.agentPreset);
+}
+function agentPresetService(ctx) {
+	try {
+		return ctx.get("agentPresets");
+	} catch {
+		return;
+	}
+}
+async function availableAgentPresets(ctx) {
+	const service = agentPresetService(ctx);
+	if (typeof service?.remoteExportList !== "function") return [];
+	try {
+		const roster = await service.remoteExportList();
+		if (!Array.isArray(roster.presets)) return [];
+		return roster.presets.flatMap((preset) => {
+			const id = preset["id"];
+			if (typeof id !== "string" || id.length === 0) return [];
+			const name = preset["name"];
+			const description = preset["description"];
+			const broken = preset["broken"];
+			return [{
+				id,
+				isDefault: preset["isDefault"] === true,
+				...typeof name === "string" && name.length > 0 ? { name } : {},
+				...typeof description === "string" && description.length > 0 ? { description } : {},
+				...typeof broken === "string" && broken.length > 0 ? { broken } : {}
+			}];
+		});
+	} catch {
+		return [];
+	}
 }
 function resolveSourceTitle(ctx, source, proposedTitle) {
 	if (typeof proposedTitle === "string" && proposedTitle.length > 0) return proposedTitle;
@@ -961,20 +996,21 @@ function resolveSourceTitle(ctx, source, proposedTitle) {
 		}
 	}
 }
-async function createVersionAgent(ctx, source, childId, plan, options, route, title, cwd) {
+async function createVersionAgent(ctx, source, childId, plan, options, route, title, cwd, presetOverride) {
 	const seed = versionSeed(source, plan);
 	if (title !== void 0 && (plan.boundary === -1 || plan.version.effect.operation === "fork")) appendLogSeedEvent(seed.events, "session/title", { title });
-	const presets = ctx.get("agentPresets");
-	const presetId = sessionPreset(source);
+	const presets = agentPresetService(ctx);
+	const presetId = presetOverride ?? sessionPreset(source);
 	const selection = modelSelectionOf(route);
 	let agentPreset;
 	let setup;
-	if (presets !== void 0 && presetId !== void 0) {
+	if (presetId !== void 0) {
+		if (presets?.resolve === void 0 || presets.mount === void 0) throw new Error("当前 DSH 没有可用的 agent preset 服务。");
 		const resolved = (await presets.resolve(presetId)).id;
 		agentPreset = resolved;
 		setup = async (agentCtx) => {
 			if (selection !== void 0) installModelSelection(agentCtx, selection);
-			await presets.mount(agentCtx, resolved);
+			await presets.mount?.(agentCtx, resolved);
 		};
 	} else if (selection !== void 0) setup = (agentCtx) => {
 		installModelSelection(agentCtx, selection);
@@ -1039,7 +1075,7 @@ async function runOperation(ctx, operation) {
 			const targetCwd = operation.action === "fork" && operation.workspaceId !== void 0 ? workspace?.path : void 0;
 			const plan = planOperation(operation, events, source.options, operation.route);
 			const options = agentOptions(events, source.options, operation.route);
-			const child = await createVersionAgent(ctx, source.session, childId, plan, options, operation.route, title, targetCwd);
+			const child = await createVersionAgent(ctx, source.session, childId, plan, options, operation.route, title, targetCwd, operation.action === "fork" ? operation.agentPreset : void 0);
 			inverses.push(() => child.dispose());
 			if (workspace !== void 0) {
 				await workspace.attachSession(childId);
@@ -1217,11 +1253,15 @@ async function timeline(ctx, sessionId) {
 	const currentLog = logs[currentIndex];
 	if (currentIndex < 0 || currentLog === void 0) throw new Error("当前版本不在版本树中。");
 	const turns = closedTurns(currentLog);
+	const currentRecord = lineage[currentIndex]?.record;
+	const currentPreset = presetIdFromEvents(currentLog, (currentRecord?.header)?.agentPreset);
 	return {
 		sessionId,
 		messages: editableMessages(turns),
 		retryableTurns: retryableTurns(turns),
 		versions,
+		agentPreset: currentPreset ?? null,
+		presets: await availableAgentPresets(ctx),
 		undoStack,
 		redoSessionIds
 	};
@@ -1237,6 +1277,11 @@ function sessionIdOf(value) {
 function optionalWorkspaceIdOf(value) {
 	if (value === void 0) return void 0;
 	if (typeof value !== "string" || value.length === 0) throw new TypeError("workspaceId 必须是非空字符串。");
+	return value;
+}
+function optionalAgentPresetOf(value) {
+	if (value === void 0) return void 0;
+	if (typeof value !== "string" || value.length === 0) throw new TypeError("agentPreset 必须是非空字符串。");
 	return value;
 }
 function integerOf(value, name) {
@@ -1301,6 +1346,7 @@ function decodeOperation(value) {
 		};
 		case "fork": {
 			const workspaceId = optionalWorkspaceIdOf(record["workspaceId"]);
+			const agentPreset = optionalAgentPresetOf(record["agentPreset"]);
 			const rowsValue = record["rows"];
 			if (!Array.isArray(rowsValue)) throw new TypeError("rows 必须是数组。");
 			return {
@@ -1324,6 +1370,7 @@ function decodeOperation(value) {
 					};
 				}),
 				...workspaceId === void 0 ? {} : { workspaceId },
+				...agentPreset === void 0 ? {} : { agentPreset },
 				...route === void 0 ? {} : { route },
 				...title === void 0 ? {} : { title }
 			};

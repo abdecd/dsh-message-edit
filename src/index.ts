@@ -33,6 +33,7 @@ import type { Workspace, WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import {
   MESSAGE_EDIT_PATH,
   MESSAGE_EDIT_VERSION_SCHEMA,
+  type AgentPresetOption,
   type CascadePolicy,
   type EditOperation,
   type EditableBlockKind,
@@ -57,6 +58,7 @@ export {
   MESSAGE_EDIT_VIEW_ORDER,
 } from './shared.ts'
 export type {
+  AgentPresetOption,
   CascadePolicy,
   EditOperation,
   EditableBlockKind,
@@ -1245,13 +1247,63 @@ function versionSeed(source: Session, plan: OperationPlan): {
   return { events, inheritedLength }
 }
 
-function sessionPreset(session: Session): string | undefined {
-  const events = session.snapshotEvents()
+function presetIdFromEvents(
+  events: readonly SessionEvent[],
+  fallback?: unknown,
+): string | undefined {
   for (let index = events.length - 1; index >= 0; index -= 1) {
-    const event = events[index] as { type: string; data?: { agentPreset?: string } } | undefined
-    if (event?.type === 'agent-preset/selected') return event.data?.agentPreset
+    const event = events[index] as { type: string; data?: { agentPreset?: unknown } } | undefined
+    if (event?.type !== 'agent-preset/selected') continue
+    const selected = event.data?.agentPreset
+    if (typeof selected === 'string' && selected.length > 0) return selected
   }
-  return session.header.agentPreset
+  return typeof fallback === 'string' && fallback.length > 0 ? fallback : undefined
+}
+
+function sessionPreset(session: Session): string | undefined {
+  return presetIdFromEvents(session.snapshotEvents(), (session.header as { agentPreset?: unknown }).agentPreset)
+}
+
+interface AgentPresetServiceLike {
+  remoteExportList?: () => Promise<{ presets?: readonly Record<string, unknown>[] }>
+  resolve?: (id: string) => Promise<{ id: string }>
+  mount?: (ctx: Context, id: string) => Promise<unknown>
+}
+
+function agentPresetService(ctx: Context): AgentPresetServiceLike | undefined {
+  try {
+    return ctx.get('agentPresets') as AgentPresetServiceLike | undefined
+  } catch {
+    return undefined
+  }
+}
+
+async function availableAgentPresets(ctx: Context): Promise<AgentPresetOption[]> {
+  const service = agentPresetService(ctx)
+  if (typeof service?.remoteExportList !== 'function') return []
+  try {
+    const roster = await service.remoteExportList()
+    if (!Array.isArray(roster.presets)) return []
+    return roster.presets.flatMap((preset): AgentPresetOption[] => {
+      const id = preset['id']
+      if (typeof id !== 'string' || id.length === 0) return []
+      const name = preset['name']
+      const description = preset['description']
+      const broken = preset['broken']
+      return [{
+        id,
+        isDefault: preset['isDefault'] === true,
+        ...typeof name === 'string' && name.length > 0 ? { name } : {},
+        ...typeof description === 'string' && description.length > 0 ? { description } : {},
+        ...typeof broken === 'string' && broken.length > 0 ? { broken } : {},
+      }]
+    })
+  } catch {
+    // Preset discovery is optional for old/rosterless deployments. Forks can
+    // still inherit the source preset, while an explicit unknown override fails
+    // in createVersionAgent below.
+    return []
+  }
 }
 
 function resolveSourceTitle(
@@ -1289,24 +1341,28 @@ async function createVersionAgent(
   route?: ModelRoute,
   title?: string,
   cwd?: string,
+  presetOverride?: string,
 ): Promise<AgentHandle> {
   const seed = versionSeed(source, plan)
   if (title !== undefined && (plan.boundary === -1 || plan.version.effect.operation === 'fork')) {
     appendLogSeedEvent(seed.events, 'session/title', { title } as any)
   }
-  const presets = ctx.get('agentPresets')
-  const presetId = sessionPreset(source)
+  const presets = agentPresetService(ctx)
+  const presetId = presetOverride ?? sessionPreset(source)
   const selection = modelSelectionOf(route)
   let agentPreset: string | undefined
   let setup: AgentSetup | undefined
-  if (presets !== undefined && presetId !== undefined) {
+  if (presetId !== undefined) {
+    if (presets?.resolve === undefined || presets.mount === undefined) {
+      throw new Error('当前 DSH 没有可用的 agent preset 服务。')
+    }
     const resolved = (await presets.resolve(presetId)).id
     agentPreset = resolved
     setup = async (agentCtx) => {
       // Install before mounting the preset, matching the normal Agent setup
       // order and ensuring preset request listeners see the selected route.
       if (selection !== undefined) installModelSelection(agentCtx, selection)
-      await presets.mount(agentCtx, resolved)
+      await presets.mount?.(agentCtx, resolved)
     }
   } else if (selection !== undefined) {
     setup = (agentCtx) => { installModelSelection(agentCtx, selection) }
@@ -1398,6 +1454,7 @@ async function runOperation(ctx: Context, operation: MessageEditOperation): Prom
         operation.route,
         title,
         targetCwd,
+        operation.action === 'fork' ? operation.agentPreset : undefined,
       )
       inverses.push(() => child.dispose())
 
@@ -1613,11 +1670,18 @@ async function timeline(ctx: Context, sessionId: SessionId): Promise<MessageEdit
   const currentLog = logs[currentIndex]
   if (currentIndex < 0 || currentLog === undefined) throw new Error('当前版本不在版本树中。')
   const turns = closedTurns(currentLog)
+  const currentRecord = lineage[currentIndex]?.record
+  const currentPreset = presetIdFromEvents(
+    currentLog,
+    (currentRecord?.header as { agentPreset?: unknown } | undefined)?.agentPreset,
+  )
   return {
     sessionId,
     messages: editableMessages(turns),
     retryableTurns: retryableTurns(turns),
     versions,
+    agentPreset: currentPreset ?? null,
+    presets: await availableAgentPresets(ctx),
     undoStack,
     redoSessionIds,
   }
@@ -1638,6 +1702,12 @@ function sessionIdOf(value: unknown): SessionId {
 function optionalWorkspaceIdOf(value: unknown): string | undefined {
   if (value === undefined) return undefined
   if (typeof value !== 'string' || value.length === 0) throw new TypeError('workspaceId 必须是非空字符串。')
+  return value
+}
+
+function optionalAgentPresetOf(value: unknown): string | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string' || value.length === 0) throw new TypeError('agentPreset 必须是非空字符串。')
   return value
 }
 
@@ -1716,6 +1786,7 @@ function decodeOperation(value: unknown): MessageEditOperation {
       }
     case 'fork': {
       const workspaceId = optionalWorkspaceIdOf(record['workspaceId'])
+      const agentPreset = optionalAgentPresetOf(record['agentPreset'])
       const rowsValue = record['rows']
       if (!Array.isArray(rowsValue)) throw new TypeError('rows 必须是数组。')
       const rows = rowsValue.map((row, index) => {
@@ -1744,6 +1815,7 @@ function decodeOperation(value: unknown): MessageEditOperation {
         sessionId,
         rows,
         ...(workspaceId === undefined ? {} : { workspaceId }),
+        ...(agentPreset === undefined ? {} : { agentPreset }),
         ...(route === undefined ? {} : { route }),
         ...(title === undefined ? {} : { title }),
       }

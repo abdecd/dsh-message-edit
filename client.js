@@ -89,6 +89,16 @@ window.__ModuleLoader__.load({
 				...row["rowCount"] === void 0 ? {} : { rowCount: numberValue(row["rowCount"], "版本 rowCount") }
 			};
 		}
+		function decodePreset(value, index) {
+			const row = objectValue(value, `presets[${String(index)}]`);
+			return {
+				id: stringValue(row["id"], "preset id"),
+				isDefault: booleanValue(row["isDefault"], "preset isDefault"),
+				...typeof row["name"] === "string" ? { name: row["name"] } : {},
+				...typeof row["description"] === "string" ? { description: row["description"] } : {},
+				...typeof row["broken"] === "string" ? { broken: row["broken"] } : {}
+			};
+		}
 		function arrayValue(value, label) {
 			if (!Array.isArray(value)) throw new TypeError(`${label} 不是数组`);
 			return value;
@@ -98,11 +108,16 @@ window.__ModuleLoader__.load({
 		}
 		function decodeTimeline(value) {
 			const data = objectValue(value, "Timeline 响应");
+			const agentPreset = data["agentPreset"];
+			if (agentPreset !== void 0 && agentPreset !== null && typeof agentPreset !== "string") throw new TypeError("Timeline agentPreset 不是字符串或 null");
+			const presets = data["presets"] === void 0 ? [] : arrayValue(data["presets"], "Timeline presets").map(decodePreset);
 			return {
 				sessionId: stringValue(data["sessionId"], "Timeline sessionId"),
 				messages: arrayValue(data["messages"], "Timeline messages").map(decodeMessage),
 				retryableTurns: arrayValue(data["retryableTurns"], "Timeline retryableTurns").map(decodeRetryable),
 				versions: arrayValue(data["versions"], "Timeline versions").map(decodeVersion),
+				agentPreset: agentPreset ?? null,
+				presets,
 				undoStack: stringArray(data["undoStack"], "Timeline undoStack"),
 				redoSessionIds: stringArray(data["redoSessionIds"], "Timeline redoSessionIds")
 			};
@@ -208,7 +223,7 @@ window.__ModuleLoader__.load({
 						action: "reroll",
 						sessionId: this.sessionId
 					}),
-					fork: (rows, workspaceId) => this.mutate({
+					fork: (rows, workspaceId, agentPreset) => this.mutate({
 						action: "fork",
 						sessionId: this.sessionId,
 						rows: rows.map((row) => ({
@@ -219,7 +234,8 @@ window.__ModuleLoader__.load({
 							...row.sourceEventSeq === void 0 ? {} : { sourceEventSeq: row.sourceEventSeq },
 							...row.sourceBlockIndex === void 0 ? {} : { sourceBlockIndex: row.sourceBlockIndex }
 						})),
-						...workspaceId === void 0 ? {} : { workspaceId }
+						...workspaceId === void 0 ? {} : { workspaceId },
+						...agentPreset === void 0 ? {} : { agentPreset }
 					}),
 					openVersion: (sessionId) => this.openWhenListed(sessionId)
 				};
@@ -546,8 +562,8 @@ window.__ModuleLoader__.load({
 		var MessageEditHeader_module_css_default = {
 			"root": "ovpcJa_root",
 			"iconButton": "ovpcJa_iconButton",
-			"counter": "ovpcJa_counter",
-			"rerollButton": "ovpcJa_rerollButton"
+			"rerollButton": "ovpcJa_rerollButton",
+			"counter": "ovpcJa_counter"
 		};
 		//#endregion
 		//#region src/client/MessageEditHeader.tsx
@@ -618,74 +634,74 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var MessageEditTimelineView_module_css_default = {
-			"workspaceField": "hbVeaa_workspaceField",
-			"versionTitle": "hbVeaa_versionTitle",
-			"versionDot": "hbVeaa_versionDot",
-			"messageTextWrapper": "hbVeaa_messageTextWrapper",
-			"pathBadge": "hbVeaa_pathBadge",
-			"editor": "hbVeaa_editor",
-			"editorHint": "hbVeaa_editorHint",
-			"messageHeader": "hbVeaa_messageHeader",
-			"versionMeta": "hbVeaa_versionMeta",
-			"editedBadge": "hbVeaa_editedBadge",
-			"error": "hbVeaa_error",
-			"effectDepth": "hbVeaa_effectDepth",
-			"headerActions": "hbVeaa_headerActions",
-			"turnPreview": "hbVeaa_turnPreview",
-			"versionDiff": "hbVeaa_versionDiff",
-			"kindBadge": "hbVeaa_kindBadge",
-			"changeChip": "hbVeaa_changeChip",
-			"messageText": "hbVeaa_messageText",
-			"intro": "hbVeaa_intro",
-			"textarea": "hbVeaa_textarea",
-			"changeSummary": "hbVeaa_changeSummary",
-			"versionLine": "hbVeaa_versionLine",
-			"turnList": "hbVeaa_turnList",
-			"versionButton": "hbVeaa_versionButton",
 			"subtitle": "hbVeaa_subtitle",
-			"emptyState": "hbVeaa_emptyState",
-			"versionItem": "hbVeaa_versionItem",
-			"turnHeader": "hbVeaa_turnHeader",
-			"versionMain": "hbVeaa_versionMain",
-			"workspaceSelect": "hbVeaa_workspaceSelect",
-			"secondaryButton": "hbVeaa_secondaryButton",
-			"currentBadge": "hbVeaa_currentBadge",
 			"notice": "hbVeaa_notice",
-			"select": "hbVeaa_select",
-			"actionRow": "hbVeaa_actionRow",
-			"textButton": "hbVeaa_textButton",
-			"checkbox": "hbVeaa_checkbox",
-			"messageSpacer": "hbVeaa_messageSpacer",
-			"turnActions": "hbVeaa_turnActions",
-			"messageCard": "hbVeaa_messageCard",
-			"turnSection": "hbVeaa_turnSection",
-			"effectControls": "hbVeaa_effectControls",
-			"versionList": "hbVeaa_versionList",
 			"turnTitle": "hbVeaa_turnTitle",
-			"editorActions": "hbVeaa_editorActions",
-			"expandButton": "hbVeaa_expandButton",
-			"count": "hbVeaa_count",
-			"messageList": "hbVeaa_messageList",
-			"messageTextCollapsed": "hbVeaa_messageTextCollapsed",
 			"root": "hbVeaa_root",
 			"title": "hbVeaa_title",
-			"columns": "hbVeaa_columns",
-			"versionsPanel": "hbVeaa_versionsPanel",
-			"newBadge": "hbVeaa_newBadge",
-			"collapseTurnButton": "hbVeaa_collapseTurnButton",
-			"effectButtons": "hbVeaa_effectButtons",
-			"dragHandle": "hbVeaa_dragHandle",
-			"primaryButton": "hbVeaa_primaryButton",
-			"turnHeaderLeft": "hbVeaa_turnHeaderLeft",
+			"currentBadge": "hbVeaa_currentBadge",
+			"editorActions": "hbVeaa_editorActions",
 			"batchActions": "hbVeaa_batchActions",
-			"empty": "hbVeaa_empty",
-			"cascadeField": "hbVeaa_cascadeField",
-			"sectionHeading": "hbVeaa_sectionHeading",
-			"turnsPanel": "hbVeaa_turnsPanel",
-			"pageHeader": "hbVeaa_pageHeader",
+			"secondaryButton": "hbVeaa_secondaryButton",
+			"kindBadge": "hbVeaa_kindBadge",
+			"turnHeader": "hbVeaa_turnHeader",
+			"workspaceSelect": "hbVeaa_workspaceSelect",
 			"messageTime": "hbVeaa_messageTime",
+			"pageHeader": "hbVeaa_pageHeader",
+			"count": "hbVeaa_count",
+			"editor": "hbVeaa_editor",
+			"actionRow": "hbVeaa_actionRow",
+			"error": "hbVeaa_error",
+			"versionList": "hbVeaa_versionList",
+			"columns": "hbVeaa_columns",
+			"workspaceField": "hbVeaa_workspaceField",
+			"versionLine": "hbVeaa_versionLine",
+			"changeChip": "hbVeaa_changeChip",
+			"editedBadge": "hbVeaa_editedBadge",
+			"expandButton": "hbVeaa_expandButton",
+			"emptyState": "hbVeaa_emptyState",
+			"effectControls": "hbVeaa_effectControls",
+			"versionTitle": "hbVeaa_versionTitle",
+			"empty": "hbVeaa_empty",
+			"versionButton": "hbVeaa_versionButton",
+			"versionsPanel": "hbVeaa_versionsPanel",
+			"turnActions": "hbVeaa_turnActions",
 			"composerFooter": "hbVeaa_composerFooter",
-			"status": "hbVeaa_status"
+			"effectButtons": "hbVeaa_effectButtons",
+			"collapseTurnButton": "hbVeaa_collapseTurnButton",
+			"textarea": "hbVeaa_textarea",
+			"checkbox": "hbVeaa_checkbox",
+			"messageList": "hbVeaa_messageList",
+			"turnSection": "hbVeaa_turnSection",
+			"status": "hbVeaa_status",
+			"pathBadge": "hbVeaa_pathBadge",
+			"turnsPanel": "hbVeaa_turnsPanel",
+			"turnPreview": "hbVeaa_turnPreview",
+			"effectDepth": "hbVeaa_effectDepth",
+			"versionItem": "hbVeaa_versionItem",
+			"versionDiff": "hbVeaa_versionDiff",
+			"messageHeader": "hbVeaa_messageHeader",
+			"turnHeaderLeft": "hbVeaa_turnHeaderLeft",
+			"messageSpacer": "hbVeaa_messageSpacer",
+			"headerActions": "hbVeaa_headerActions",
+			"messageTextWrapper": "hbVeaa_messageTextWrapper",
+			"turnList": "hbVeaa_turnList",
+			"messageTextCollapsed": "hbVeaa_messageTextCollapsed",
+			"cascadeField": "hbVeaa_cascadeField",
+			"versionDot": "hbVeaa_versionDot",
+			"select": "hbVeaa_select",
+			"intro": "hbVeaa_intro",
+			"versionMeta": "hbVeaa_versionMeta",
+			"dragHandle": "hbVeaa_dragHandle",
+			"messageText": "hbVeaa_messageText",
+			"messageCard": "hbVeaa_messageCard",
+			"versionMain": "hbVeaa_versionMain",
+			"newBadge": "hbVeaa_newBadge",
+			"textButton": "hbVeaa_textButton",
+			"sectionHeading": "hbVeaa_sectionHeading",
+			"editorHint": "hbVeaa_editorHint",
+			"changeSummary": "hbVeaa_changeSummary",
+			"primaryButton": "hbVeaa_primaryButton"
 		};
 		//#endregion
 		//#region src/client/MessageEditTimelineView.tsx
@@ -955,6 +971,7 @@ window.__ModuleLoader__.load({
 			const workspaceItems = useWorkspaces((value) => value.items);
 			const [cascade, setCascade] = (0, react.useState)("truncate");
 			const [forkWorkspaceId, setForkWorkspaceId] = (0, react.useState)("");
+			const [forkPresetId, setForkPresetId] = (0, react.useState)("");
 			const [editing, setEditing] = (0, react.useState)(null);
 			const [draft, setDraft] = (0, react.useState)(null);
 			const [history, setHistory] = (0, react.useState)([]);
@@ -972,6 +989,9 @@ window.__ModuleLoader__.load({
 				return release;
 			}, [acquire, load]);
 			const timeline = state.timeline;
+			const presetItems = timeline?.presets ?? [];
+			const sourcePreset = timeline?.agentPreset ?? null;
+			const sourcePresetLabel = (sourcePreset === null ? void 0 : presetItems.find((preset) => preset.id === sourcePreset))?.name ?? sourcePreset ?? "未设置";
 			const baseline = (0, react.useMemo)(() => new Map((timeline?.messages ?? []).map((message) => [message.key, message])), [timeline]);
 			const baselineRows = (0, react.useMemo)(() => (timeline?.messages ?? []).map((message) => ({
 				key: message.key,
@@ -998,6 +1018,7 @@ window.__ModuleLoader__.load({
 				lastSessionIdRef.current = timeline?.sessionId ?? null;
 				if (sessionChanged) {
 					setForkWorkspaceId("");
+					setForkPresetId("");
 					setSelectedKeys(/* @__PURE__ */ new Set());
 					setEditing(null);
 					setCollapsedSectionIds(new Set(baselineRows.map((r) => r.turn !== void 0 ? `turn-${String(r.turn)}` : `added-${r.key}`)));
@@ -1384,68 +1405,94 @@ window.__ModuleLoader__.load({
 							children: "在右列自由增删改已落定消息，Fork 按当前内容重建消息历史并生成新版本；可在顶部选择目标工作区。 以用户消息结尾时，新版本会生成新的助手回复。每次修改与其恢复版本成对记录，原版本保持不变。"
 						})] }), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 							className: MessageEditTimelineView_module_css_default["headerActions"],
-							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-								className: MessageEditTimelineView_module_css_default["actionRow"],
-								children: [
-									/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-										className: MessageEditTimelineView_module_css_default["cascadeField"],
-										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: "重试后续策略" }), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("select", {
-											className: MessageEditTimelineView_module_css_default["select"],
-											value: cascade,
-											onChange: (event) => {
-												setCascade(event.currentTarget.value);
-											},
-											children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
-												value: "truncate",
-												children: "截断后续回合"
-											}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
-												value: "preserve",
-												children: "保留后续用户输入"
+							children: [
+								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+									className: MessageEditTimelineView_module_css_default["actionRow"],
+									children: [
+										/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+											className: MessageEditTimelineView_module_css_default["cascadeField"],
+											children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: "重试后续策略" }), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("select", {
+												className: MessageEditTimelineView_module_css_default["select"],
+												value: cascade,
+												onChange: (event) => {
+													setCascade(event.currentTarget.value);
+												},
+												children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
+													value: "truncate",
+													children: "截断后续回合"
+												}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
+													value: "preserve",
+													children: "保留后续用户输入"
+												})]
 											})]
-										})]
-									}),
-									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-										type: "button",
-										className: MessageEditTimelineView_module_css_default["primaryButton"],
-										disabled: busy || editing !== null || !changes.hasChanges && !hasSelection && selectedForkWorkspaceId === "",
-										title: hasSelection ? "基于当前选中的消息列表重建新版本历史" : selectedForkWorkspaceId !== "" ? "按当前历史 Fork 到目标工作区" : "按右列当前内容重建消息历史并生成新版本；结尾的用户消息会触发新的助手回复",
-										onClick: () => {
-											fork(forkRows(), selectedForkWorkspaceId || void 0);
-										},
-										children: forkLabel
-									}),
-									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-										type: "button",
-										className: MessageEditTimelineView_module_css_default["secondaryButton"],
+										}),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+											type: "button",
+											className: MessageEditTimelineView_module_css_default["primaryButton"],
+											disabled: busy || editing !== null || !changes.hasChanges && !hasSelection && selectedForkWorkspaceId === "" && forkPresetId === "",
+											title: hasSelection ? "基于当前选中的消息列表重建新版本历史" : selectedForkWorkspaceId !== "" ? "按当前历史 Fork 到目标工作区" : forkPresetId !== "" ? "按当前历史 Fork 并使用选定的 DSH preset" : "按右列当前内容重建消息历史并生成新版本；结尾的用户消息会触发新的助手回复",
+											onClick: () => {
+												fork(forkRows(), selectedForkWorkspaceId || void 0, forkPresetId || void 0);
+											},
+											children: forkLabel
+										}),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+											type: "button",
+											className: MessageEditTimelineView_module_css_default["secondaryButton"],
+											disabled: busy,
+											onClick: () => {
+												reroll();
+											},
+											children: state.pending === "reroll" ? "正在重生成…" : "重生成最后回复"
+										})
+									]
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+									className: `${MessageEditTimelineView_module_css_default["cascadeField"]} ${MessageEditTimelineView_module_css_default["workspaceField"]}`,
+									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: "Fork 目标工作区" }), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("select", {
+										className: `${MessageEditTimelineView_module_css_default["select"]} ${MessageEditTimelineView_module_css_default["workspaceSelect"]}`,
+										value: selectedForkWorkspaceId,
 										disabled: busy,
-										onClick: () => {
-											reroll();
+										onChange: (event) => {
+											setForkWorkspaceId(event.currentTarget.value);
 										},
-										children: state.pending === "reroll" ? "正在重生成…" : "重生成最后回复"
-									})
-								]
-							}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-								className: `${MessageEditTimelineView_module_css_default["cascadeField"]} ${MessageEditTimelineView_module_css_default["workspaceField"]}`,
-								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: "Fork 目标工作区" }), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("select", {
-									className: `${MessageEditTimelineView_module_css_default["select"]} ${MessageEditTimelineView_module_css_default["workspaceSelect"]}`,
-									value: selectedForkWorkspaceId,
-									disabled: busy,
-									onChange: (event) => {
-										setForkWorkspaceId(event.currentTarget.value);
-									},
-									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
-										value: "",
-										children: currentWorkspace === void 0 ? "沿用源会话工作目录" : `跟随当前工作区：${currentWorkspace.title}`
-									}), workspaceItems.map((workspace) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("option", {
-										value: workspace.workspaceId,
-										children: [
-											workspace.title,
-											" · ",
-											workspace.path
-										]
-									}, workspace.workspaceId))]
-								})]
-							})]
+										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
+											value: "",
+											children: currentWorkspace === void 0 ? "沿用源会话工作目录" : `跟随当前工作区：${currentWorkspace.title}`
+										}), workspaceItems.map((workspace) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("option", {
+											value: workspace.workspaceId,
+											children: [
+												workspace.title,
+												" · ",
+												workspace.path
+											]
+										}, workspace.workspaceId))]
+									})]
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+									className: `${MessageEditTimelineView_module_css_default["cascadeField"]} ${MessageEditTimelineView_module_css_default["workspaceField"]}`,
+									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: "Fork 使用 DSH preset" }), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("select", {
+										className: `${MessageEditTimelineView_module_css_default["select"]} ${MessageEditTimelineView_module_css_default["workspaceSelect"]}`,
+										value: forkPresetId,
+										disabled: busy,
+										onChange: (event) => {
+											setForkPresetId(event.currentTarget.value);
+										},
+										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("option", {
+											value: "",
+											children: ["沿用源会话：", sourcePresetLabel]
+										}), presetItems.map((preset) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("option", {
+											value: preset.id,
+											disabled: preset.broken !== void 0,
+											children: [
+												preset.name ?? preset.id,
+												preset.isDefault ? " · 默认" : "",
+												preset.broken === void 0 ? "" : " · 不可用"
+											]
+										}, preset.id))]
+									})]
+								})
+							]
 						})]
 					}),
 					state.error === null ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {

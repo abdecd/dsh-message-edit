@@ -161,3 +161,15 @@ test('retry before manual load completes automatically loads and executes', asyn
     assert.deepEqual(f.opened, ['child'])
   } finally { f.release() }
 })
+
+test('fork forwards the selected agent preset', async () => {
+  const f = await clientFixture({ provider: 'provider', model: 'model' })
+  try {
+    f.face.load()
+    await settle()
+    assert.equal(await f.face.fork([], undefined, 'standard'), true)
+    const request = f.requests.find(item => item.method === 'POST')
+    assert.ok(request)
+    assert.equal(JSON.parse(request.body).agentPreset, 'standard')
+  } finally { f.release() }
+})
