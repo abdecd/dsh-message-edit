@@ -197,7 +197,7 @@ function createOverlayHost(edit: MessageEditFace['edit']): {
   }
 }
 
-/** Inject retry + edit icon buttons into each message action row. */
+/** Inject retry + edit icon buttons into each user message action row. */
 export function InlineMessageEdit({
   messages,
   edit,
@@ -226,59 +226,65 @@ export function InlineMessageEdit({
     const sync = (): void => {
       const currentMessages = messagesRef.current
       if (currentMessages.length === 0) return
-      const actionRows = Array.from(document.querySelectorAll<HTMLElement>('[class*="actions"]'))
+
+      // Clean up any stray/orphan injected buttons that are NOT inside a userRow (e.g. AI responses)
+      const strayButtons = Array.from(document.querySelectorAll<HTMLElement>('[data-message-edit-injected]'))
+      for (const btn of strayButtons) {
+        if (!btn.closest('[class*="userRow"]')) {
+          btn.remove()
+        }
+      }
+
+      // ONLY target user messages: find userRow elements that are not context/injected rows
+      const userRows = Array.from(document.querySelectorAll<HTMLElement>(
+        '[class*="userRow"]:not([class*="contextRow"])',
+      )).filter(row => !row.hasAttribute('data-pending-steering') && !row.hasAttribute('data-submission-echo'))
+
+      const userMessages = currentMessages.filter(m => m.kind === 'user')
+      if (userMessages.length === 0) return
+
       const claimedEvents = new Set<number>()
-      for (const row of actionRows) {
-        const marker = row as HTMLElement & {
+
+      for (const userRow of userRows) {
+        const actionRow = userRow.querySelector<HTMLElement>('[class*="actions"]')
+        if (!actionRow) continue
+
+        const marker = actionRow as HTMLElement & {
           __messageEditInjected?: boolean
           __messageEditEventSeq?: number
           __messageEditCleanup?: () => void
         }
+
         if (marker.__messageEditInjected === true) {
           const stillValid = marker.__messageEditEventSeq !== undefined &&
-            currentMessages.some(message => message.eventSeq === marker.__messageEditEventSeq)
-          if (stillValid && row.querySelector('[data-message-edit-injected]')) {
+            userMessages.some(message => message.eventSeq === marker.__messageEditEventSeq)
+          if (stillValid && actionRow.querySelector('[data-message-edit-injected]')) {
             if (marker.__messageEditEventSeq !== undefined) claimedEvents.add(marker.__messageEditEventSeq)
             continue
           }
           marker.__messageEditCleanup?.()
           marker.__messageEditInjected = false
         }
-        // Check if there is an explicit data-turn-tail on an ancestor
-        const turnTailEl = row.closest<HTMLElement>('[data-turn-tail]')
-        const turnTailAttr = turnTailEl?.getAttribute('data-turn-tail')
-        const explicitTurn = turnTailAttr ? Number.parseInt(turnTailAttr, 10) : undefined
 
-        let eventSeq: number | undefined
-        if (explicitTurn !== undefined && Number.isFinite(explicitTurn)) {
-          const turnAssistantMessages = currentMessages.filter(m => m.turn === explicitTurn && m.kind.startsWith('assistant'))
-          if (turnAssistantMessages.length > 0) {
-            eventSeq = turnAssistantMessages[0]?.eventSeq
-          } else {
-            const turnMessages = currentMessages.filter(m => m.turn === explicitTurn)
-            if (turnMessages.length > 0) {
-              eventSeq = turnMessages[turnMessages.length - 1]?.eventSeq
-            }
-          }
+        const bubble = userRow.querySelector<HTMLElement>('[class*="bubble"]')
+        const userText = (bubble?.textContent ?? userRow.textContent ?? '').trim()
+
+        // Match against unclaimed user messages by text, or fallback to sequential order
+        let candidate = userMessages.find(m => (
+          !claimedEvents.has(m.eventSeq) &&
+          m.text.length > 0 &&
+          userText.includes(m.text.slice(0, 24))
+        ))
+        if (!candidate) {
+          candidate = userMessages.find(m => !claimedEvents.has(m.eventSeq))
         }
+        if (!candidate) continue
 
-        if (eventSeq === undefined) {
-          const text = (row.parentElement?.parentElement?.textContent ?? '').trim()
-          if (text.length === 0) continue
-          const matchingEvents = [...new Set(currentMessages
-            .filter(message => message.text.length > 0 && text.includes(message.text.slice(0, 24)))
-            .map(message => message.eventSeq))]
-          eventSeq = matchingEvents.find(candidate => !claimedEvents.has(candidate))
-        }
-
-        if (eventSeq === undefined) continue
-        const blocks = currentMessages.filter(message => message.eventSeq === eventSeq)
-        if (blocks.length === 0) continue
-        const previousMarker = marker.__messageEditInjected
-        const previousEventSeq = marker.__messageEditEventSeq
+        const eventSeq = candidate.eventSeq
+        const turn = candidate.turn
+        claimedEvents.add(eventSeq)
         marker.__messageEditInjected = true
         marker.__messageEditEventSeq = eventSeq
-        claimedEvents.add(eventSeq)
 
         const editButton = document.createElement('button')
         editButton.type = 'button'
@@ -290,10 +296,9 @@ export function InlineMessageEdit({
         const editMessage = (e: MouseEvent): void => {
           e.preventDefault()
           e.stopPropagation()
-          const liveBlocks = messagesRef.current.filter(m => m.eventSeq === eventSeq)
-          const targetBlocks = liveBlocks.length > 0 ? liveBlocks : blocks
-          if (targetBlocks.length === 1 && targetBlocks[0] !== undefined) overlays.editBlock(targetBlocks[0])
-          else if (targetBlocks.length > 1) overlays.chooseBlock(targetBlocks)
+          const liveBlocks = messagesRef.current.filter(m => m.eventSeq === eventSeq && m.kind === 'user')
+          const targetBlock = liveBlocks[0] ?? candidate
+          if (targetBlock) overlays.editBlock(targetBlock)
         }
         editButton.addEventListener('click', editMessage)
 
@@ -309,14 +314,11 @@ export function InlineMessageEdit({
           e.stopPropagation()
           if (retryButton.disabled) return
 
-          const liveBlocks = messagesRef.current.filter(m => m.eventSeq === eventSeq)
-          const targetBlocks = liveBlocks.length > 0 ? liveBlocks : blocks
-          const turn = explicitTurn !== undefined && Number.isFinite(explicitTurn)
-            ? explicitTurn
-            : targetBlocks[0]?.turn
+          const liveBlocks = messagesRef.current.filter(m => m.eventSeq === eventSeq && m.kind === 'user')
+          const targetTurn = liveBlocks[0]?.turn ?? turn
 
-          if (turn === undefined) {
-            console.warn('[dsh-message-edit] 无法解析该消息对应的回合')
+          if (targetTurn === undefined) {
+            console.warn('[dsh-message-edit] 无法解析该用户消息对应的回合')
             return
           }
 
@@ -324,7 +326,7 @@ export function InlineMessageEdit({
           retryButton.style.opacity = '0.5'
           retryButton.title = '正在重试…'
 
-          void retryRef.current(turn, 'truncate').then((success) => {
+          void retryRef.current(targetTurn, 'truncate').then((success) => {
             if (!success) {
               retryButton.disabled = false
               retryButton.style.opacity = ''
@@ -341,25 +343,24 @@ export function InlineMessageEdit({
 
         // Insert after the last official action button so injected icons
         // stay contiguous with copy/branch and the clock keeps its side.
-        const officialButtons = Array.from(row.querySelectorAll('button'))
+        const officialButtons = Array.from(actionRow.querySelectorAll('button'))
           .filter(button => !button.hasAttribute('data-message-edit-injected'))
         const lastOfficial = officialButtons.at(-1)
         if (lastOfficial !== undefined) {
           lastOfficial.insertAdjacentElement('afterend', retryButton)
           lastOfficial.insertAdjacentElement('afterend', editButton)
         } else {
-          row.appendChild(editButton)
-          row.appendChild(retryButton)
+          actionRow.appendChild(editButton)
+          actionRow.appendChild(retryButton)
         }
+
         const rowCleanup = (): void => {
           editButton.removeEventListener('click', editMessage)
           retryButton.removeEventListener('click', retryTurn)
           editButton.remove()
           retryButton.remove()
-          if (previousMarker === undefined) delete marker.__messageEditInjected
-          else marker.__messageEditInjected = previousMarker
-          if (previousEventSeq === undefined) delete marker.__messageEditEventSeq
-          else marker.__messageEditEventSeq = previousEventSeq
+          delete marker.__messageEditInjected
+          delete marker.__messageEditEventSeq
           delete marker.__messageEditCleanup
         }
         marker.__messageEditCleanup = rowCleanup

@@ -549,6 +549,357 @@ window.__ModuleLoader__.load({
 			}
 		};
 		//#endregion
+		//#region \0dsh-css:/run/media/user1/78E6859DE6855BEE/code/js/dsh-message-edit/src/client/InlineMessageEdit.module.css.mjs
+		const css$2 = ".Ps3QDa_overlay{z-index:1000;background:var(--dsw-alias-bg-mask,#00000073);overscroll-behavior:contain;justify-content:center;align-items:center;padding:16px;display:flex;position:fixed;inset:0}.Ps3QDa_panel{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-module-platform);-webkit-overflow-scrolling:touch;border-radius:10px;width:min(560px,100%);max-height:calc(100vh - 32px);padding:14px 16px;overflow:auto}.Ps3QDa_title{color:var(--dsw-alias-label-primary);padding:4px 0 10px;font-size:13px}.Ps3QDa_input{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-module-platform);width:100%;min-width:0;min-height:160px;color:var(--dsw-alias-label-primary);font:inherit;resize:vertical;border-radius:8px;padding:10px}.Ps3QDa_footer{justify-content:flex-end;gap:8px;padding:10px 0 0;display:flex}.Ps3QDa_footer button{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-module-hover);min-height:34px;color:var(--dsw-alias-label-primary);cursor:pointer;border-radius:6px;padding:6px 14px}.Ps3QDa_footer button:disabled{cursor:default;opacity:.45}.Ps3QDa_iconButton{width:20px;height:20px;color:var(--dsw-alias-label-secondary);cursor:pointer;touch-action:manipulation;background:0 0;border:none;border-radius:4px;justify-content:center;align-items:center;padding:2px;display:inline-flex}.Ps3QDa_iconButton:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-module-hover)}.Ps3QDa_picker{flex-direction:column;gap:6px;padding:4px 0 12px;display:flex}.Ps3QDa_pickerItem{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-module-hover);color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;border-radius:6px;padding:8px 10px;font-size:12px}.Ps3QDa_pickerItem:hover{background:var(--dsw-alias-bg-module-platform)}.Ps3QDa_pickerItemActive{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-module-hover);color:var(--dsw-alias-label-primary);cursor:pointer;border-radius:6px;align-self:flex-end;padding:6px 14px}@media (width<=680px){.Ps3QDa_overlay{padding:max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));align-items:center}.Ps3QDa_panel{border-radius:12px;width:100%;max-height:calc(100dvh - 24px);padding:12px}.Ps3QDa_title{padding:4px 0 10px;font-size:14px;line-height:20px}.Ps3QDa_iconButton{width:32px;height:32px;padding:8px}.Ps3QDa_input{min-height:min(45vh,280px);font-size:16px;line-height:22px}.Ps3QDa_footer{gap:8px}.Ps3QDa_footer button{flex:1;min-height:44px;font-size:14px}.Ps3QDa_picker{gap:8px}.Ps3QDa_pickerItem,.Ps3QDa_pickerItemActive{min-height:44px;font-size:14px}}";
+		const tagId$2 = "dsh-message-edit/InlineMessageEdit.module.css";
+		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$2) + "]") === null) {
+			const tag = document.createElement("style");
+			tag.dataset.plugin = "dsh-message-edit";
+			tag.dataset.pluginCss = tagId$2;
+			tag.textContent = css$2;
+			document.head.appendChild(tag);
+		}
+		var InlineMessageEdit_module_css_default = {
+			"overlay": "Ps3QDa_overlay",
+			"panel": "Ps3QDa_panel",
+			"title": "Ps3QDa_title",
+			"picker": "Ps3QDa_picker",
+			"footer": "Ps3QDa_footer",
+			"iconButton": "Ps3QDa_iconButton",
+			"pickerItemActive": "Ps3QDa_pickerItemActive",
+			"pickerItem": "Ps3QDa_pickerItem",
+			"input": "Ps3QDa_input"
+		};
+		//#endregion
+		//#region src/client/InlineMessageEdit.tsx
+		/**
+		* Message-row edit affordance: injects retry + edit icon buttons into each
+		* settled message's icon-actions row (the official MessageIconActions has no
+		* plugin slot, so injection rides a MutationObserver over action rows).
+		* Icons are the official outline-16 SVGs inlined to avoid bundling the
+		* primitives package.
+		*/
+		const BLOCK_TITLE = {
+			user: "编辑用户消息",
+			"assistant.reasoning": "编辑助手思考",
+			"assistant.response": "编辑助手回复",
+			system: "编辑 System Prompt",
+			"tool.call": "编辑工具调用",
+			"tool.result": "编辑工具返回",
+			"context.inject": "编辑注入上下文"
+		};
+		const STYLE = {
+			overlay: InlineMessageEdit_module_css_default["overlay"] ?? "",
+			panel: InlineMessageEdit_module_css_default["panel"] ?? "",
+			title: InlineMessageEdit_module_css_default["title"] ?? "",
+			input: InlineMessageEdit_module_css_default["input"] ?? "",
+			footer: InlineMessageEdit_module_css_default["footer"] ?? "",
+			iconButton: InlineMessageEdit_module_css_default["iconButton"] ?? "",
+			picker: InlineMessageEdit_module_css_default["picker"] ?? "",
+			pickerItem: InlineMessageEdit_module_css_default["pickerItem"] ?? "",
+			pickerItemActive: InlineMessageEdit_module_css_default["pickerItemActive"] ?? ""
+		};
+		/** Official ic_ds_refresh_outline_16 path (dsh-client-ui-primitives). */
+		const REFRESH_PATH = "M7.92136 0.349152C10.3744 0.349234 12.5564 1.5052 13.9557 3.29894L15.1281 2.12759C15.3303 1.92546 15.6767 2.06943 15.6767 2.35538V5.53923C15.6766 5.71626 15.5329 5.85976 15.3559 5.86002H12.171C11.8854 5.8597 11.7426 5.51465 11.9443 5.31249L12.9641 4.29056C11.8237 2.74305 9.98908 1.74106 7.92136 1.74097C4.46436 1.74097 1.66233 4.543 1.66233 8C1.66233 11.457 4.46436 14.259 7.92136 14.259C11.3782 14.2589 14.1804 11.4569 14.1804 8H15.5722C15.5722 12.2251 12.1465 15.6507 7.92136 15.6508C3.69614 15.6508 0.270508 12.2252 0.270508 8C0.270508 3.77478 3.69614 0.349152 7.92136 0.349152Z";
+		/** Official ic_ds_edit_outline_16 path (dsh-client-ui-primitives). */
+		const EDIT_PATH = "M9.94076 1.34942C10.7047 0.90231 11.6503 0.902415 12.4143 1.34942C12.7061 1.52015 12.9688 1.79118 13.3104 2.13284C13.6521 2.47448 13.9231 2.73721 14.0939 3.02894C14.5408 3.79294 14.5409 4.73856 14.0939 5.50251C13.9231 5.79415 13.652 6.05704 13.3104 6.39861L6.65932 13.0497C6.28068 13.4284 6.00695 13.7108 5.66543 13.9097C5.32391 14.1085 4.94315 14.2074 4.42705 14.3498L3.24394 14.6761C2.77527 14.8054 2.34538 14.9262 2.00131 14.9684C1.65196 15.0112 1.17964 15.0013 0.810764 14.6325C0.441921 14.2637 0.432107 13.7913 0.47486 13.442C0.517035 13.0979 0.6379 12.668 0.767181 12.1993L1.09352 11.0162C1.23588 10.5001 1.33481 10.1193 1.5336 9.77784C1.7325 9.43632 2.0149 9.1626 2.39355 8.78395L9.04466 2.13284C9.38625 1.79126 9.64911 1.52016 9.94076 1.34942ZM15.5427 14.8398H7.55223L8.96707 13.425H15.5427V14.8398ZM3.39382 9.78422C2.965 10.213 2.84244 10.3436 2.75709 10.49C2.67183 10.6366 2.61862 10.8079 2.45733 11.3925L2.13099 12.5756C2.00183 13.0439 1.92194 13.3419 1.88863 13.5536C2.10041 13.5204 2.39872 13.4416 2.86764 13.3123L4.05075 12.9859C4.63544 12.8246 4.80669 12.7715 4.95323 12.6862C5.09968 12.6008 5.23022 12.4783 5.65905 12.0494L10.721 6.98644L8.45577 4.72121L3.39382 9.78422ZM11.7 2.57079C11.3774 2.38198 10.9777 2.38198 10.6551 2.57079C10.5602 2.62647 10.4487 2.72931 10.0449 3.13311L9.45604 3.72094L11.7213 5.98617L12.3102 5.39833C12.7139 4.99457 12.8168 4.88307 12.8725 4.78818C13.0613 4.46561 13.0612 4.06585 12.8725 3.74326C12.8169 3.64827 12.7146 3.53752 12.3102 3.13311C11.9057 2.72863 11.795 2.6264 11.7 2.57079Z";
+		function svgIcon(path) {
+			const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+			svg.setAttribute("width", "16");
+			svg.setAttribute("height", "16");
+			svg.setAttribute("viewBox", "0 0 16 16");
+			svg.setAttribute("fill", "none");
+			const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+			p.setAttribute("d", path);
+			p.setAttribute("fill", "currentColor");
+			svg.appendChild(p);
+			return svg;
+		}
+		function blockTitle(kind) {
+			return BLOCK_TITLE[kind] ?? "编辑消息";
+		}
+		/** Mount one editor DOM effect and return its exact inverse. */
+		function mountEditor(block, edit, close) {
+			const overlay = document.createElement("div");
+			overlay.className = STYLE.overlay;
+			const panel = document.createElement("div");
+			panel.className = STYLE.panel;
+			const title = document.createElement("div");
+			title.className = STYLE.title;
+			title.textContent = blockTitle(block.kind);
+			const input = document.createElement("textarea");
+			input.className = STYLE.input;
+			input.value = block.text;
+			const footer = document.createElement("div");
+			footer.className = STYLE.footer;
+			const save = document.createElement("button");
+			save.textContent = "保存";
+			const cancel = document.createElement("button");
+			cancel.textContent = "取消";
+			footer.append(save, cancel);
+			panel.append(title, input, footer);
+			overlay.appendChild(panel);
+			document.body.appendChild(overlay);
+			input.focus();
+			input.setSelectionRange(input.value.length, input.value.length);
+			let mounted = true;
+			let saving = false;
+			const saveEdit = () => {
+				if (saving) return;
+				saving = true;
+				save.disabled = true;
+				edit(block, input.value, "truncate").then((applied) => {
+					if (!mounted) return;
+					if (applied) {
+						close();
+						return;
+					}
+					saving = false;
+					save.disabled = false;
+				});
+			};
+			const cancelEdit = () => {
+				close();
+			};
+			const dismiss = (event) => {
+				if (event.target === overlay) close();
+			};
+			save.addEventListener("click", saveEdit);
+			cancel.addEventListener("click", cancelEdit);
+			overlay.addEventListener("click", dismiss);
+			return () => {
+				mounted = false;
+				save.removeEventListener("click", saveEdit);
+				cancel.removeEventListener("click", cancelEdit);
+				overlay.removeEventListener("click", dismiss);
+				overlay.remove();
+			};
+		}
+		/** Mount one block-picker DOM effect and return its exact inverse. */
+		function mountPicker(blocks, select, close) {
+			const overlay = document.createElement("div");
+			overlay.className = STYLE.overlay;
+			const panel = document.createElement("div");
+			panel.className = STYLE.panel;
+			const title = document.createElement("div");
+			title.className = STYLE.title;
+			title.textContent = blocks.some((block) => block.kind === "user") ? "编辑消息" : "编辑助手消息";
+			const picker = document.createElement("div");
+			picker.className = STYLE.picker;
+			const itemListeners = [];
+			for (const block of blocks) {
+				const item = document.createElement("button");
+				item.className = STYLE.pickerItem;
+				item.textContent = `${blockTitle(block.kind)}：${block.text.slice(0, 24)}${block.text.length > 24 ? "…" : ""}`;
+				const listener = () => {
+					select(block);
+				};
+				item.addEventListener("click", listener);
+				itemListeners.push({
+					item,
+					listener
+				});
+				picker.appendChild(item);
+			}
+			const cancel = document.createElement("button");
+			cancel.textContent = "取消";
+			cancel.className = STYLE.pickerItemActive;
+			const cancelPicker = () => {
+				close();
+			};
+			cancel.addEventListener("click", cancelPicker);
+			panel.append(title, picker, cancel);
+			overlay.appendChild(panel);
+			document.body.appendChild(overlay);
+			return () => {
+				for (const { item, listener } of itemListeners) item.removeEventListener("click", listener);
+				cancel.removeEventListener("click", cancelPicker);
+				overlay.remove();
+			};
+		}
+		/** Compose every overlay with a single idempotent active inverse. */
+		function createOverlayHost(edit) {
+			let active;
+			const mount = (effect) => {
+				active?.();
+				let cleanup = () => {};
+				let mounted = true;
+				const close = () => {
+					if (!mounted) return;
+					mounted = false;
+					cleanup();
+					if (active === close) active = void 0;
+				};
+				active = close;
+				try {
+					cleanup = effect(close);
+				} catch (error) {
+					active = void 0;
+					mounted = false;
+					throw error;
+				}
+			};
+			const editBlock = (block) => {
+				mount((close) => mountEditor(block, edit, close));
+			};
+			const chooseBlock = (blocks) => {
+				mount((close) => mountPicker(blocks, (block) => {
+					close();
+					editBlock(block);
+				}, close));
+			};
+			return {
+				editBlock,
+				chooseBlock,
+				dispose: () => {
+					active?.();
+				}
+			};
+		}
+		/** Inject retry + edit icon buttons into each user message action row. */
+		function InlineMessageEdit({ messages, edit, retry }) {
+			const messagesRef = (0, react.useRef)(messages);
+			messagesRef.current = messages;
+			const editRef = (0, react.useRef)(edit);
+			editRef.current = edit;
+			const retryRef = (0, react.useRef)(retry);
+			retryRef.current = retry;
+			const syncRef = (0, react.useRef)(null);
+			(0, react.useEffect)(() => {
+				const cleanups = [];
+				const overlays = createOverlayHost((block, text, cascade) => editRef.current(block, text, cascade));
+				let observer;
+				let alive = true;
+				let frame;
+				let scheduled = false;
+				const sync = () => {
+					const currentMessages = messagesRef.current;
+					if (currentMessages.length === 0) return;
+					const strayButtons = Array.from(document.querySelectorAll("[data-message-edit-injected]"));
+					for (const btn of strayButtons) if (!btn.closest("[class*=\"userRow\"]")) btn.remove();
+					const userRows = Array.from(document.querySelectorAll("[class*=\"userRow\"]:not([class*=\"contextRow\"])")).filter((row) => !row.hasAttribute("data-pending-steering") && !row.hasAttribute("data-submission-echo"));
+					const userMessages = currentMessages.filter((m) => m.kind === "user");
+					if (userMessages.length === 0) return;
+					const claimedEvents = /* @__PURE__ */ new Set();
+					for (const userRow of userRows) {
+						const actionRow = userRow.querySelector("[class*=\"actions\"]");
+						if (!actionRow) continue;
+						const marker = actionRow;
+						if (marker.__messageEditInjected === true) {
+							if (marker.__messageEditEventSeq !== void 0 && userMessages.some((message) => message.eventSeq === marker.__messageEditEventSeq) && actionRow.querySelector("[data-message-edit-injected]")) {
+								if (marker.__messageEditEventSeq !== void 0) claimedEvents.add(marker.__messageEditEventSeq);
+								continue;
+							}
+							marker.__messageEditCleanup?.();
+							marker.__messageEditInjected = false;
+						}
+						const userText = (userRow.querySelector("[class*=\"bubble\"]")?.textContent ?? userRow.textContent ?? "").trim();
+						let candidate = userMessages.find((m) => !claimedEvents.has(m.eventSeq) && m.text.length > 0 && userText.includes(m.text.slice(0, 24)));
+						if (!candidate) candidate = userMessages.find((m) => !claimedEvents.has(m.eventSeq));
+						if (!candidate) continue;
+						const eventSeq = candidate.eventSeq;
+						const turn = candidate.turn;
+						claimedEvents.add(eventSeq);
+						marker.__messageEditInjected = true;
+						marker.__messageEditEventSeq = eventSeq;
+						const editButton = document.createElement("button");
+						editButton.type = "button";
+						editButton.className = STYLE.iconButton;
+						editButton.setAttribute("aria-label", "编辑消息");
+						editButton.setAttribute("data-message-edit-injected", "true");
+						editButton.title = "编辑消息";
+						editButton.appendChild(svgIcon(EDIT_PATH));
+						const editMessage = (e) => {
+							e.preventDefault();
+							e.stopPropagation();
+							const targetBlock = messagesRef.current.filter((m) => m.eventSeq === eventSeq && m.kind === "user")[0] ?? candidate;
+							if (targetBlock) overlays.editBlock(targetBlock);
+						};
+						editButton.addEventListener("click", editMessage);
+						const retryButton = document.createElement("button");
+						retryButton.type = "button";
+						retryButton.className = STYLE.iconButton;
+						retryButton.setAttribute("aria-label", "重试此回合");
+						retryButton.setAttribute("data-message-edit-injected", "true");
+						retryButton.title = "重试此回合";
+						retryButton.appendChild(svgIcon(REFRESH_PATH));
+						const retryTurn = (e) => {
+							e.preventDefault();
+							e.stopPropagation();
+							if (retryButton.disabled) return;
+							const targetTurn = messagesRef.current.filter((m) => m.eventSeq === eventSeq && m.kind === "user")[0]?.turn ?? turn;
+							if (targetTurn === void 0) {
+								console.warn("[dsh-message-edit] 无法解析该用户消息对应的回合");
+								return;
+							}
+							retryButton.disabled = true;
+							retryButton.style.opacity = "0.5";
+							retryButton.title = "正在重试…";
+							retryRef.current(targetTurn, "truncate").then((success) => {
+								if (!success) {
+									retryButton.disabled = false;
+									retryButton.style.opacity = "";
+									retryButton.title = "重试此回合";
+								}
+							}).catch((err) => {
+								console.error("[dsh-message-edit] 重试失败:", err);
+								retryButton.disabled = false;
+								retryButton.style.opacity = "";
+								retryButton.title = "重试此回合";
+							});
+						};
+						retryButton.addEventListener("click", retryTurn);
+						const lastOfficial = Array.from(actionRow.querySelectorAll("button")).filter((button) => !button.hasAttribute("data-message-edit-injected")).at(-1);
+						if (lastOfficial !== void 0) {
+							lastOfficial.insertAdjacentElement("afterend", retryButton);
+							lastOfficial.insertAdjacentElement("afterend", editButton);
+						} else {
+							actionRow.appendChild(editButton);
+							actionRow.appendChild(retryButton);
+						}
+						const rowCleanup = () => {
+							editButton.removeEventListener("click", editMessage);
+							retryButton.removeEventListener("click", retryTurn);
+							editButton.remove();
+							retryButton.remove();
+							delete marker.__messageEditInjected;
+							delete marker.__messageEditEventSeq;
+							delete marker.__messageEditCleanup;
+						};
+						marker.__messageEditCleanup = rowCleanup;
+						cleanups.push(rowCleanup);
+					}
+				};
+				syncRef.current = sync;
+				sync();
+				observer = new MutationObserver(() => {
+					if (!alive || scheduled) return;
+					scheduled = true;
+					frame = requestAnimationFrame(() => {
+						frame = void 0;
+						scheduled = false;
+						if (alive) sync();
+					});
+				});
+				observer.observe(document.body, {
+					childList: true,
+					subtree: true
+				});
+				return () => {
+					alive = false;
+					syncRef.current = null;
+					if (frame !== void 0) cancelAnimationFrame(frame);
+					observer?.disconnect();
+					overlays.dispose();
+					for (const cleanup of cleanups.reverse()) cleanup();
+				};
+			}, []);
+			(0, react.useEffect)(() => {
+				syncRef.current?.();
+			}, [messages]);
+			return null;
+		}
+		//#endregion
 		//#region \0dsh-css:/run/media/user1/78E6859DE6855BEE/code/js/dsh-message-edit/src/client/MessageEditHeader.module.css.mjs
 		const css$1 = ".ovpcJa_root{flex-wrap:wrap;align-items:center;gap:4px;min-width:0;max-width:100%;display:inline-flex}.ovpcJa_iconButton,.ovpcJa_rerollButton{box-sizing:border-box;color:var(--dsw-alias-label-secondary);font:inherit;cursor:pointer;touch-action:manipulation;background:0 0;border:0}.ovpcJa_iconButton{border-radius:50%;justify-content:center;align-items:center;width:28px;height:28px;font-size:16px;line-height:20px;display:inline-flex}.ovpcJa_rerollButton{border:1px solid var(--dsw-alias-border-l2);border-radius:14px;height:28px;padding:0 10px;font-size:12px;line-height:18px}.ovpcJa_iconButton:hover:not(:disabled),.ovpcJa_rerollButton:hover:not(:disabled){color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}.ovpcJa_iconButton:focus-visible,.ovpcJa_rerollButton:focus-visible{box-shadow:0 0 0 2px var(--dsw-alias-border-l3);outline:none}.ovpcJa_iconButton:disabled,.ovpcJa_rerollButton:disabled{cursor:default;opacity:.4}.ovpcJa_counter{min-width:108px;color:var(--dsw-alias-label-tertiary);text-align:center;font-size:11px;line-height:18px}@media (width<=760px){.ovpcJa_counter{display:none}.ovpcJa_iconButton{width:36px;height:36px;font-size:18px}.ovpcJa_rerollButton{white-space:nowrap;border-radius:18px;height:36px;min-height:36px;padding:0 12px}}";
 		const tagId$1 = "dsh-message-edit/MessageEditHeader.module.css";
@@ -560,15 +911,15 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var MessageEditHeader_module_css_default = {
-			"root": "ovpcJa_root",
+			"counter": "ovpcJa_counter",
 			"iconButton": "ovpcJa_iconButton",
 			"rerollButton": "ovpcJa_rerollButton",
-			"counter": "ovpcJa_counter"
+			"root": "ovpcJa_root"
 		};
 		//#endregion
 		//#region src/client/MessageEditHeader.tsx
 		/** Header contribution shared with the Timeline controller. */
-		function MessageEditHeader({ useMessageEdit, acquire, load, openVersion, reroll }) {
+		function MessageEditHeader({ useMessageEdit, acquire, load, openVersion, reroll, edit, retry }) {
 			const state = useMessageEdit((value) => value);
 			(0, react.useEffect)(() => {
 				const release = acquire();
@@ -581,7 +932,11 @@ window.__ModuleLoader__.load({
 			const redoSessionId = timeline?.redoSessionIds.at(-1);
 			const effectDepth = timeline?.undoStack.length ?? 0;
 			const busy = state.pending !== null || state.status !== "ready";
-			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(InlineMessageEdit, {
+				messages: timeline?.messages ?? [],
+				edit,
+				retry
+			}, timeline?.sessionId ?? "none"), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 				className: MessageEditHeader_module_css_default["root"],
 				children: [
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
@@ -620,7 +975,7 @@ window.__ModuleLoader__.load({
 						children: state.pending === "reroll" ? "正在重生成…" : "重生成"
 					})
 				]
-			});
+			})] });
 		}
 		//#endregion
 		//#region \0dsh-css:/run/media/user1/78E6859DE6855BEE/code/js/dsh-message-edit/src/client/MessageEditTimelineView.module.css.mjs
@@ -634,74 +989,74 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var MessageEditTimelineView_module_css_default = {
-			"subtitle": "hbVeaa_subtitle",
-			"notice": "hbVeaa_notice",
+			"editorHint": "hbVeaa_editorHint",
 			"turnTitle": "hbVeaa_turnTitle",
-			"root": "hbVeaa_root",
-			"title": "hbVeaa_title",
-			"currentBadge": "hbVeaa_currentBadge",
-			"editorActions": "hbVeaa_editorActions",
+			"checkbox": "hbVeaa_checkbox",
+			"messageText": "hbVeaa_messageText",
 			"batchActions": "hbVeaa_batchActions",
+			"root": "hbVeaa_root",
+			"turnsPanel": "hbVeaa_turnsPanel",
 			"secondaryButton": "hbVeaa_secondaryButton",
+			"versionMeta": "hbVeaa_versionMeta",
+			"messageList": "hbVeaa_messageList",
+			"pageHeader": "hbVeaa_pageHeader",
+			"status": "hbVeaa_status",
+			"turnActions": "hbVeaa_turnActions",
+			"effectDepth": "hbVeaa_effectDepth",
+			"textarea": "hbVeaa_textarea",
+			"turnList": "hbVeaa_turnList",
+			"effectControls": "hbVeaa_effectControls",
+			"primaryButton": "hbVeaa_primaryButton",
+			"notice": "hbVeaa_notice",
+			"versionButton": "hbVeaa_versionButton",
+			"versionDot": "hbVeaa_versionDot",
+			"versionDiff": "hbVeaa_versionDiff",
+			"messageSpacer": "hbVeaa_messageSpacer",
 			"kindBadge": "hbVeaa_kindBadge",
-			"turnHeader": "hbVeaa_turnHeader",
+			"newBadge": "hbVeaa_newBadge",
+			"messageCard": "hbVeaa_messageCard",
+			"versionList": "hbVeaa_versionList",
+			"versionTitle": "hbVeaa_versionTitle",
+			"workspaceField": "hbVeaa_workspaceField",
 			"workspaceSelect": "hbVeaa_workspaceSelect",
 			"messageTime": "hbVeaa_messageTime",
-			"pageHeader": "hbVeaa_pageHeader",
-			"count": "hbVeaa_count",
-			"editor": "hbVeaa_editor",
-			"actionRow": "hbVeaa_actionRow",
 			"error": "hbVeaa_error",
-			"versionList": "hbVeaa_versionList",
-			"columns": "hbVeaa_columns",
-			"workspaceField": "hbVeaa_workspaceField",
-			"versionLine": "hbVeaa_versionLine",
-			"changeChip": "hbVeaa_changeChip",
-			"editedBadge": "hbVeaa_editedBadge",
-			"expandButton": "hbVeaa_expandButton",
-			"emptyState": "hbVeaa_emptyState",
-			"effectControls": "hbVeaa_effectControls",
-			"versionTitle": "hbVeaa_versionTitle",
-			"empty": "hbVeaa_empty",
-			"versionButton": "hbVeaa_versionButton",
-			"versionsPanel": "hbVeaa_versionsPanel",
-			"turnActions": "hbVeaa_turnActions",
-			"composerFooter": "hbVeaa_composerFooter",
-			"effectButtons": "hbVeaa_effectButtons",
-			"collapseTurnButton": "hbVeaa_collapseTurnButton",
-			"textarea": "hbVeaa_textarea",
-			"checkbox": "hbVeaa_checkbox",
-			"messageList": "hbVeaa_messageList",
-			"turnSection": "hbVeaa_turnSection",
-			"status": "hbVeaa_status",
-			"pathBadge": "hbVeaa_pathBadge",
-			"turnsPanel": "hbVeaa_turnsPanel",
-			"turnPreview": "hbVeaa_turnPreview",
-			"effectDepth": "hbVeaa_effectDepth",
-			"versionItem": "hbVeaa_versionItem",
-			"versionDiff": "hbVeaa_versionDiff",
-			"messageHeader": "hbVeaa_messageHeader",
-			"turnHeaderLeft": "hbVeaa_turnHeaderLeft",
-			"messageSpacer": "hbVeaa_messageSpacer",
 			"headerActions": "hbVeaa_headerActions",
+			"currentBadge": "hbVeaa_currentBadge",
+			"messageHeader": "hbVeaa_messageHeader",
+			"editedBadge": "hbVeaa_editedBadge",
 			"messageTextWrapper": "hbVeaa_messageTextWrapper",
-			"turnList": "hbVeaa_turnList",
-			"messageTextCollapsed": "hbVeaa_messageTextCollapsed",
-			"cascadeField": "hbVeaa_cascadeField",
-			"versionDot": "hbVeaa_versionDot",
-			"select": "hbVeaa_select",
+			"emptyState": "hbVeaa_emptyState",
 			"intro": "hbVeaa_intro",
-			"versionMeta": "hbVeaa_versionMeta",
-			"dragHandle": "hbVeaa_dragHandle",
-			"messageText": "hbVeaa_messageText",
-			"messageCard": "hbVeaa_messageCard",
-			"versionMain": "hbVeaa_versionMain",
-			"newBadge": "hbVeaa_newBadge",
-			"textButton": "hbVeaa_textButton",
-			"sectionHeading": "hbVeaa_sectionHeading",
-			"editorHint": "hbVeaa_editorHint",
+			"editor": "hbVeaa_editor",
+			"columns": "hbVeaa_columns",
+			"versionsPanel": "hbVeaa_versionsPanel",
+			"pathBadge": "hbVeaa_pathBadge",
+			"messageTextCollapsed": "hbVeaa_messageTextCollapsed",
+			"select": "hbVeaa_select",
 			"changeSummary": "hbVeaa_changeSummary",
-			"primaryButton": "hbVeaa_primaryButton"
+			"effectButtons": "hbVeaa_effectButtons",
+			"expandButton": "hbVeaa_expandButton",
+			"turnSection": "hbVeaa_turnSection",
+			"textButton": "hbVeaa_textButton",
+			"title": "hbVeaa_title",
+			"editorActions": "hbVeaa_editorActions",
+			"dragHandle": "hbVeaa_dragHandle",
+			"turnHeader": "hbVeaa_turnHeader",
+			"changeChip": "hbVeaa_changeChip",
+			"sectionHeading": "hbVeaa_sectionHeading",
+			"versionItem": "hbVeaa_versionItem",
+			"turnPreview": "hbVeaa_turnPreview",
+			"collapseTurnButton": "hbVeaa_collapseTurnButton",
+			"cascadeField": "hbVeaa_cascadeField",
+			"versionLine": "hbVeaa_versionLine",
+			"turnHeaderLeft": "hbVeaa_turnHeaderLeft",
+			"empty": "hbVeaa_empty",
+			"composerFooter": "hbVeaa_composerFooter",
+			"subtitle": "hbVeaa_subtitle",
+			"actionRow": "hbVeaa_actionRow",
+			"versionMain": "hbVeaa_versionMain",
+			"count": "hbVeaa_count"
 		};
 		//#endregion
 		//#region src/client/MessageEditTimelineView.tsx
