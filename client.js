@@ -550,25 +550,25 @@ window.__ModuleLoader__.load({
 		};
 		//#endregion
 		//#region \0dsh-css:/run/media/user1/78E6859DE6855BEE/code/js/dsh-message-edit/src/client/InlineMessageEdit.module.css.mjs
-		const css$2 = ".Ps3QDa_overlay{z-index:1000;background:var(--dsw-alias-bg-mask,#00000073);overscroll-behavior:contain;justify-content:center;align-items:center;padding:16px;display:flex;position:fixed;inset:0}.Ps3QDa_panel{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-module-platform);-webkit-overflow-scrolling:touch;border-radius:10px;width:min(560px,100%);max-height:calc(100vh - 32px);padding:14px 16px;overflow:auto}.Ps3QDa_title{color:var(--dsw-alias-label-primary);padding:4px 0 10px;font-size:13px}.Ps3QDa_input{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-module-platform);width:100%;min-width:0;min-height:160px;color:var(--dsw-alias-label-primary);font:inherit;resize:vertical;border-radius:8px;padding:10px}.Ps3QDa_footer{justify-content:flex-end;gap:8px;padding:10px 0 0;display:flex}.Ps3QDa_footer button{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-module-hover);min-height:34px;color:var(--dsw-alias-label-primary);cursor:pointer;border-radius:6px;padding:6px 14px}.Ps3QDa_footer button:disabled{cursor:default;opacity:.45}.Ps3QDa_iconButton{width:20px;height:20px;color:var(--dsw-alias-label-secondary);cursor:pointer;touch-action:manipulation;background:0 0;border:none;border-radius:4px;justify-content:center;align-items:center;padding:2px;display:inline-flex}.Ps3QDa_iconButton:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-module-hover)}.Ps3QDa_picker{flex-direction:column;gap:6px;padding:4px 0 12px;display:flex}.Ps3QDa_pickerItem{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-module-hover);color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;border-radius:6px;padding:8px 10px;font-size:12px}.Ps3QDa_pickerItem:hover{background:var(--dsw-alias-bg-module-platform)}.Ps3QDa_pickerItemActive{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-module-hover);color:var(--dsw-alias-label-primary);cursor:pointer;border-radius:6px;align-self:flex-end;padding:6px 14px}@media (width<=680px){.Ps3QDa_overlay{padding:max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));align-items:center}.Ps3QDa_panel{border-radius:12px;width:100%;max-height:calc(100dvh - 24px);padding:12px}.Ps3QDa_title{padding:4px 0 10px;font-size:14px;line-height:20px}.Ps3QDa_iconButton{width:32px;height:32px;padding:8px}.Ps3QDa_input{min-height:min(45vh,280px);font-size:16px;line-height:22px}.Ps3QDa_footer{gap:8px}.Ps3QDa_footer button{flex:1;min-height:44px;font-size:14px}.Ps3QDa_picker{gap:8px}.Ps3QDa_pickerItem,.Ps3QDa_pickerItemActive{min-height:44px;font-size:14px}}";
-		const tagId$2 = "dsh-message-edit/InlineMessageEdit.module.css";
-		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$2) + "]") === null) {
+		const css$1 = ".Ps3QDa_overlay{z-index:1000;background:var(--dsw-alias-bg-mask,#00000073);overscroll-behavior:contain;justify-content:center;align-items:center;padding:16px;display:flex;position:fixed;inset:0}.Ps3QDa_panel{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-module-platform);-webkit-overflow-scrolling:touch;border-radius:10px;width:min(560px,100%);max-height:calc(100vh - 32px);padding:14px 16px;overflow:auto}.Ps3QDa_title{color:var(--dsw-alias-label-primary);padding:4px 0 10px;font-size:13px}.Ps3QDa_input{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-module-platform);width:100%;min-width:0;min-height:160px;color:var(--dsw-alias-label-primary);font:inherit;resize:vertical;border-radius:8px;padding:10px}.Ps3QDa_footer{justify-content:flex-end;gap:8px;padding:10px 0 0;display:flex}.Ps3QDa_footer button{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-module-hover);min-height:34px;color:var(--dsw-alias-label-primary);cursor:pointer;border-radius:6px;padding:6px 14px}.Ps3QDa_footer button:disabled{cursor:default;opacity:.45}.Ps3QDa_iconButton{width:20px;height:20px;color:var(--dsw-alias-label-secondary);cursor:pointer;touch-action:manipulation;background:0 0;border:none;border-radius:4px;justify-content:center;align-items:center;padding:2px;display:inline-flex}.Ps3QDa_iconButton:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-module-hover)}.Ps3QDa_picker{flex-direction:column;gap:6px;padding:4px 0 12px;display:flex}.Ps3QDa_pickerItem{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-module-hover);color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;border-radius:6px;padding:8px 10px;font-size:12px}.Ps3QDa_pickerItem:hover{background:var(--dsw-alias-bg-module-platform)}.Ps3QDa_pickerItemActive{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-module-hover);color:var(--dsw-alias-label-primary);cursor:pointer;border-radius:6px;align-self:flex-end;padding:6px 14px}@media (width<=680px){.Ps3QDa_overlay{padding:max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));align-items:center}.Ps3QDa_panel{border-radius:12px;width:100%;max-height:calc(100dvh - 24px);padding:12px}.Ps3QDa_title{padding:4px 0 10px;font-size:14px;line-height:20px}.Ps3QDa_iconButton{width:32px;height:32px;padding:8px}.Ps3QDa_input{min-height:min(45vh,280px);font-size:16px;line-height:22px}.Ps3QDa_footer{gap:8px}.Ps3QDa_footer button{flex:1;min-height:44px;font-size:14px}.Ps3QDa_picker{gap:8px}.Ps3QDa_pickerItem,.Ps3QDa_pickerItemActive{min-height:44px;font-size:14px}}";
+		const tagId$1 = "dsh-message-edit/InlineMessageEdit.module.css";
+		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$1) + "]") === null) {
 			const tag = document.createElement("style");
 			tag.dataset.plugin = "dsh-message-edit";
-			tag.dataset.pluginCss = tagId$2;
-			tag.textContent = css$2;
+			tag.dataset.pluginCss = tagId$1;
+			tag.textContent = css$1;
 			document.head.appendChild(tag);
 		}
 		var InlineMessageEdit_module_css_default = {
+			"pickerItem": "Ps3QDa_pickerItem",
 			"overlay": "Ps3QDa_overlay",
-			"panel": "Ps3QDa_panel",
-			"title": "Ps3QDa_title",
 			"picker": "Ps3QDa_picker",
+			"panel": "Ps3QDa_panel",
 			"footer": "Ps3QDa_footer",
 			"iconButton": "Ps3QDa_iconButton",
-			"pickerItemActive": "Ps3QDa_pickerItemActive",
-			"pickerItem": "Ps3QDa_pickerItem",
-			"input": "Ps3QDa_input"
+			"input": "Ps3QDa_input",
+			"title": "Ps3QDa_title",
+			"pickerItemActive": "Ps3QDa_pickerItemActive"
 		};
 		//#endregion
 		//#region src/client/InlineMessageEdit.tsx
@@ -900,26 +900,13 @@ window.__ModuleLoader__.load({
 			return null;
 		}
 		//#endregion
-		//#region \0dsh-css:/run/media/user1/78E6859DE6855BEE/code/js/dsh-message-edit/src/client/MessageEditHeader.module.css.mjs
-		const css$1 = ".ovpcJa_root{flex-wrap:wrap;align-items:center;gap:4px;min-width:0;max-width:100%;display:inline-flex}.ovpcJa_iconButton,.ovpcJa_rerollButton{box-sizing:border-box;color:var(--dsw-alias-label-secondary);font:inherit;cursor:pointer;touch-action:manipulation;background:0 0;border:0}.ovpcJa_iconButton{border-radius:50%;justify-content:center;align-items:center;width:28px;height:28px;font-size:16px;line-height:20px;display:inline-flex}.ovpcJa_rerollButton{border:1px solid var(--dsw-alias-border-l2);border-radius:14px;height:28px;padding:0 10px;font-size:12px;line-height:18px}.ovpcJa_iconButton:hover:not(:disabled),.ovpcJa_rerollButton:hover:not(:disabled){color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}.ovpcJa_iconButton:focus-visible,.ovpcJa_rerollButton:focus-visible{box-shadow:0 0 0 2px var(--dsw-alias-border-l3);outline:none}.ovpcJa_iconButton:disabled,.ovpcJa_rerollButton:disabled{cursor:default;opacity:.4}.ovpcJa_counter{min-width:108px;color:var(--dsw-alias-label-tertiary);text-align:center;font-size:11px;line-height:18px}@media (width<=760px){.ovpcJa_counter{display:none}.ovpcJa_iconButton{width:36px;height:36px;font-size:18px}.ovpcJa_rerollButton{white-space:nowrap;border-radius:18px;height:36px;min-height:36px;padding:0 12px}}";
-		const tagId$1 = "dsh-message-edit/MessageEditHeader.module.css";
-		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$1) + "]") === null) {
-			const tag = document.createElement("style");
-			tag.dataset.plugin = "dsh-message-edit";
-			tag.dataset.pluginCss = tagId$1;
-			tag.textContent = css$1;
-			document.head.appendChild(tag);
-		}
-		var MessageEditHeader_module_css_default = {
-			"counter": "ovpcJa_counter",
-			"iconButton": "ovpcJa_iconButton",
-			"rerollButton": "ovpcJa_rerollButton",
-			"root": "ovpcJa_root"
-		};
-		//#endregion
 		//#region src/client/MessageEditHeader.tsx
-		/** Header contribution shared with the Timeline controller. */
-		function MessageEditHeader({ useMessageEdit, acquire, load, openVersion, reroll, edit, retry }) {
+		/**
+		* Header contribution registered into conversation.session.header.actions.
+		* The top header effect navigation and reroll button are hidden;
+		* this component mounts InlineMessageEdit to support message-level editing.
+		*/
+		function MessageEditHeader({ useMessageEdit, acquire, load, edit, retry }) {
 			const state = useMessageEdit((value) => value);
 			(0, react.useEffect)(() => {
 				const release = acquire();
@@ -927,55 +914,11 @@ window.__ModuleLoader__.load({
 				return release;
 			}, [acquire, load]);
 			const timeline = state.timeline;
-			const versions = state.timeline?.versions ?? [];
-			const undoSessionId = timeline?.undoStack[0];
-			const redoSessionId = timeline?.redoSessionIds.at(-1);
-			const effectDepth = timeline?.undoStack.length ?? 0;
-			const busy = state.pending !== null || state.status !== "ready";
-			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(InlineMessageEdit, {
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(InlineMessageEdit, {
 				messages: timeline?.messages ?? [],
 				edit,
 				retry
-			}, timeline?.sessionId ?? "none"), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-				className: MessageEditHeader_module_css_default["root"],
-				children: [
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-						type: "button",
-						className: MessageEditHeader_module_css_default["iconButton"],
-						"aria-label": "撤销当前版本效果",
-						title: "撤销当前效果，保留更早效果",
-						disabled: undoSessionId === void 0 || busy,
-						onClick: () => {
-							if (undoSessionId !== void 0) openVersion(undoSessionId);
-						},
-						children: "←"
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: MessageEditHeader_module_css_default["counter"],
-						children: versions.length === 0 ? "效果 —" : `效果 ${String(effectDepth)} 层 · ${String(versions.length)} 版`
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-						type: "button",
-						className: MessageEditHeader_module_css_default["iconButton"],
-						"aria-label": "重施加下一版本效果",
-						title: timeline !== null && timeline.redoSessionIds.length > 1 ? `重施加最新效果（另有 ${String(timeline.redoSessionIds.length - 1)} 个分支）` : "重施加下一效果",
-						disabled: redoSessionId === void 0 || busy,
-						onClick: () => {
-							if (redoSessionId !== void 0) openVersion(redoSessionId);
-						},
-						children: "→"
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-						type: "button",
-						className: MessageEditHeader_module_css_default["rerollButton"],
-						disabled: busy || state.timeline === null,
-						onClick: () => {
-							reroll();
-						},
-						children: state.pending === "reroll" ? "正在重生成…" : "重生成"
-					})
-				]
-			})] });
+			}, timeline?.sessionId ?? "none");
 		}
 		//#endregion
 		//#region \0dsh-css:/run/media/user1/78E6859DE6855BEE/code/js/dsh-message-edit/src/client/MessageEditTimelineView.module.css.mjs
@@ -989,74 +932,74 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var MessageEditTimelineView_module_css_default = {
-			"editorHint": "hbVeaa_editorHint",
-			"turnTitle": "hbVeaa_turnTitle",
-			"checkbox": "hbVeaa_checkbox",
-			"messageText": "hbVeaa_messageText",
-			"batchActions": "hbVeaa_batchActions",
-			"root": "hbVeaa_root",
-			"turnsPanel": "hbVeaa_turnsPanel",
-			"secondaryButton": "hbVeaa_secondaryButton",
-			"versionMeta": "hbVeaa_versionMeta",
-			"messageList": "hbVeaa_messageList",
-			"pageHeader": "hbVeaa_pageHeader",
-			"status": "hbVeaa_status",
-			"turnActions": "hbVeaa_turnActions",
-			"effectDepth": "hbVeaa_effectDepth",
-			"textarea": "hbVeaa_textarea",
-			"turnList": "hbVeaa_turnList",
-			"effectControls": "hbVeaa_effectControls",
-			"primaryButton": "hbVeaa_primaryButton",
-			"notice": "hbVeaa_notice",
-			"versionButton": "hbVeaa_versionButton",
-			"versionDot": "hbVeaa_versionDot",
-			"versionDiff": "hbVeaa_versionDiff",
-			"messageSpacer": "hbVeaa_messageSpacer",
-			"kindBadge": "hbVeaa_kindBadge",
-			"newBadge": "hbVeaa_newBadge",
-			"messageCard": "hbVeaa_messageCard",
-			"versionList": "hbVeaa_versionList",
-			"versionTitle": "hbVeaa_versionTitle",
-			"workspaceField": "hbVeaa_workspaceField",
-			"workspaceSelect": "hbVeaa_workspaceSelect",
-			"messageTime": "hbVeaa_messageTime",
 			"error": "hbVeaa_error",
+			"turnsPanel": "hbVeaa_turnsPanel",
 			"headerActions": "hbVeaa_headerActions",
-			"currentBadge": "hbVeaa_currentBadge",
-			"messageHeader": "hbVeaa_messageHeader",
-			"editedBadge": "hbVeaa_editedBadge",
-			"messageTextWrapper": "hbVeaa_messageTextWrapper",
-			"emptyState": "hbVeaa_emptyState",
-			"intro": "hbVeaa_intro",
-			"editor": "hbVeaa_editor",
-			"columns": "hbVeaa_columns",
-			"versionsPanel": "hbVeaa_versionsPanel",
-			"pathBadge": "hbVeaa_pathBadge",
-			"messageTextCollapsed": "hbVeaa_messageTextCollapsed",
-			"select": "hbVeaa_select",
-			"changeSummary": "hbVeaa_changeSummary",
-			"effectButtons": "hbVeaa_effectButtons",
-			"expandButton": "hbVeaa_expandButton",
-			"turnSection": "hbVeaa_turnSection",
-			"textButton": "hbVeaa_textButton",
-			"title": "hbVeaa_title",
-			"editorActions": "hbVeaa_editorActions",
 			"dragHandle": "hbVeaa_dragHandle",
 			"turnHeader": "hbVeaa_turnHeader",
-			"changeChip": "hbVeaa_changeChip",
-			"sectionHeading": "hbVeaa_sectionHeading",
-			"versionItem": "hbVeaa_versionItem",
-			"turnPreview": "hbVeaa_turnPreview",
-			"collapseTurnButton": "hbVeaa_collapseTurnButton",
-			"cascadeField": "hbVeaa_cascadeField",
-			"versionLine": "hbVeaa_versionLine",
-			"turnHeaderLeft": "hbVeaa_turnHeaderLeft",
-			"empty": "hbVeaa_empty",
-			"composerFooter": "hbVeaa_composerFooter",
-			"subtitle": "hbVeaa_subtitle",
+			"columns": "hbVeaa_columns",
+			"workspaceSelect": "hbVeaa_workspaceSelect",
 			"actionRow": "hbVeaa_actionRow",
+			"sectionHeading": "hbVeaa_sectionHeading",
+			"versionDiff": "hbVeaa_versionDiff",
+			"messageTime": "hbVeaa_messageTime",
+			"root": "hbVeaa_root",
+			"pathBadge": "hbVeaa_pathBadge",
+			"versionMeta": "hbVeaa_versionMeta",
+			"batchActions": "hbVeaa_batchActions",
+			"messageTextWrapper": "hbVeaa_messageTextWrapper",
+			"turnActions": "hbVeaa_turnActions",
+			"newBadge": "hbVeaa_newBadge",
+			"turnPreview": "hbVeaa_turnPreview",
+			"composerFooter": "hbVeaa_composerFooter",
+			"secondaryButton": "hbVeaa_secondaryButton",
+			"checkbox": "hbVeaa_checkbox",
+			"effectControls": "hbVeaa_effectControls",
+			"turnSection": "hbVeaa_turnSection",
+			"intro": "hbVeaa_intro",
+			"messageText": "hbVeaa_messageText",
+			"effectDepth": "hbVeaa_effectDepth",
+			"turnHeaderLeft": "hbVeaa_turnHeaderLeft",
+			"messageList": "hbVeaa_messageList",
+			"editedBadge": "hbVeaa_editedBadge",
+			"versionButton": "hbVeaa_versionButton",
+			"empty": "hbVeaa_empty",
+			"textarea": "hbVeaa_textarea",
+			"title": "hbVeaa_title",
+			"changeSummary": "hbVeaa_changeSummary",
+			"editor": "hbVeaa_editor",
+			"select": "hbVeaa_select",
+			"subtitle": "hbVeaa_subtitle",
+			"turnList": "hbVeaa_turnList",
+			"notice": "hbVeaa_notice",
+			"versionList": "hbVeaa_versionList",
+			"versionLine": "hbVeaa_versionLine",
+			"versionTitle": "hbVeaa_versionTitle",
+			"collapseTurnButton": "hbVeaa_collapseTurnButton",
+			"editorActions": "hbVeaa_editorActions",
 			"versionMain": "hbVeaa_versionMain",
-			"count": "hbVeaa_count"
+			"editorHint": "hbVeaa_editorHint",
+			"messageHeader": "hbVeaa_messageHeader",
+			"versionsPanel": "hbVeaa_versionsPanel",
+			"workspaceField": "hbVeaa_workspaceField",
+			"messageCard": "hbVeaa_messageCard",
+			"pageHeader": "hbVeaa_pageHeader",
+			"effectButtons": "hbVeaa_effectButtons",
+			"emptyState": "hbVeaa_emptyState",
+			"count": "hbVeaa_count",
+			"versionDot": "hbVeaa_versionDot",
+			"textButton": "hbVeaa_textButton",
+			"changeChip": "hbVeaa_changeChip",
+			"messageSpacer": "hbVeaa_messageSpacer",
+			"currentBadge": "hbVeaa_currentBadge",
+			"versionItem": "hbVeaa_versionItem",
+			"cascadeField": "hbVeaa_cascadeField",
+			"primaryButton": "hbVeaa_primaryButton",
+			"turnTitle": "hbVeaa_turnTitle",
+			"messageTextCollapsed": "hbVeaa_messageTextCollapsed",
+			"status": "hbVeaa_status",
+			"expandButton": "hbVeaa_expandButton",
+			"kindBadge": "hbVeaa_kindBadge"
 		};
 		//#endregion
 		//#region src/client/MessageEditTimelineView.tsx

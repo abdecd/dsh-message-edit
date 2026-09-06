@@ -20,7 +20,7 @@ dsh plugin --profile web add dsh-message-edit
   - `truncate`（默认）：只重新执行目标输入，删除该点之后的旧后续。
   - `preserve`：保留后续用户输入，并在新分支中依次重新执行；助手输出与工具链全部重新生成。
 - **模型与思考强度跟随聊天框**：编辑、重生成、重试与 Fork 触发的新回复默认使用底部聊天框 `modelSelection.next` projection 中当前选中的模型和思考强度；思考强度未设置时使用所选模型的提供方默认值，而不是继承源历史的旧强度；仅在无法读取当前选择时（如子代理会话、连接不可用）回退到历史推导的路由。
-- **版本切换**：会话标题栏的 `←` 撤销当前原子效果，`→` 重施加最新直接子效果；Timeline 展示完整已知分支树、操作时间、编辑前后内容与当前版本。
+- **版本切换**：Timeline 标签页展示完整已知分支树、操作时间、编辑前后内容与当前版本，支持随时切换到任意分支与版本。
 - **Timeline 标签页**：注册到 `conversation.view`，`order: 15`，位于 Trajectory（10）与 Prompt Studio（20）之间。
 
 ## 设计
@@ -92,7 +92,7 @@ interface MessageEditVersionEvent {
   - 左栏为完整版本树（含 Fork 版本的消息计数）；右栏为可自由增删改的消息草稿，顶部实时显示「新增 · 编辑 · 删除」计数与一键重置，主按钮按草稿内容执行 Fork（结尾为用户消息时生成新回复）
 - `conversation.session.header.actions`
   - `id: message-edit-controls`
-  - 直接父效果撤销、直接子效果重施加、效果链计数、最后回复重生成
+  - 挂载用户消息行内编辑能力（顶栏原效果计数、撤销/重做与重生成按钮已隐藏，相关操作由 Timeline 标签页统一承载）
 
 组件使用 CSS Modules 与 `--dsw-*` 语义 token，不引入 UI 库。所有产品文案为中文，代码注释为英文。
 
