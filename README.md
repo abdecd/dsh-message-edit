@@ -19,7 +19,7 @@ dsh plugin --profile web add dsh-message-edit
 - **级联策略**：
   - `truncate`（默认）：只重新执行目标输入，删除该点之后的旧后续。
   - `preserve`：保留后续用户输入，并在新分支中依次重新执行；助手输出与工具链全部重新生成。
-- **模型与思考强度跟随聊天框**：编辑、重生成、重试与 Fork 触发的新回复默认使用底部聊天框 `session.models.current` 中当前选中的模型和思考强度；思考强度未设置时使用所选模型的提供方默认值，而不是继承源历史的旧强度；仅在无法读取当前选择时（如子代理会话、连接不可用）回退到历史推导的路由。
+- **模型与思考强度跟随聊天框**：编辑、重生成、重试与 Fork 触发的新回复默认使用底部聊天框 `modelSelection.next` projection 中当前选中的模型和思考强度；思考强度未设置时使用所选模型的提供方默认值，而不是继承源历史的旧强度；仅在无法读取当前选择时（如子代理会话、连接不可用）回退到历史推导的路由。
 - **版本切换**：会话标题栏的 `←` 撤销当前原子效果，`→` 重施加最新直接子效果；Timeline 展示完整已知分支树、操作时间、编辑前后内容与当前版本。
 - **Timeline 标签页**：注册到 `conversation.view`，`order: 15`，位于 Trajectory（10）与 Prompt Studio（20）之间。
 
@@ -99,11 +99,12 @@ interface MessageEditVersionEvent {
 ## 构建
 
 ```bash
-npm install
-npm run build
+pnpm install
+pnpm run build
+pnpm test
 ```
 
-构建基于 npm 发布的 `@deepseek-ai/*@0.1.0-rc.6` 类型与本地工具链（typescript、tsdown、lightningcss），不再依赖 dsh 源码树。构建生成：
+构建基于 npm 发布的 `@deepseek-ai/dsh-*@0.1.2-rc.1`（Cordis peer: `^4.0.1`） 类型与本地工具链（typescript、tsdown、lightningcss），不再依赖 dsh 源码树。构建生成：
 
 - `index.mjs`：Host 插件
 - `client.js`：Browser 插件

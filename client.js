@@ -4,7 +4,7 @@ window.__ModuleLoader__.load({
 		var module = { exports: {} };
 		var exports = module.exports;
 		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
-		let _deepseek_ai_dsh_client_runtime_client = require("@deepseek-ai/dsh-client-runtime/client");
+		let _deepseek_ai_dsh_client_store = require("@deepseek-ai/dsh-client-store");
 		let react = require("react");
 		let react_jsx_runtime = require("react/jsx-runtime");
 		//#region src/shared.ts
@@ -120,18 +120,6 @@ window.__ModuleLoader__.load({
 			const error = objectValue(value, "错误响应")["error"];
 			throw new Error(typeof error === "string" ? error : `请求失败：HTTP ${String(response.status)}`);
 		}
-		function conversationRevision(snapshot) {
-			const turnEnds = [...snapshot.turnEnds.entries()].map(([turn, seq]) => `${String(turn)}:${String(seq)}`).join(",");
-			const nodeKeys = snapshot.nodes.map((node) => `${node.kind}:${String(node.seq)}`).join(",");
-			return [
-				snapshot.openState,
-				snapshot.removed,
-				snapshot.hasMore,
-				snapshot.running ? "1" : "0",
-				turnEnds,
-				nodeKeys
-			].join("|");
-		}
 		function lineageRevision(snapshot, sessionId) {
 			let root = sessionId;
 			const ancestorIds = /* @__PURE__ */ new Set();
@@ -160,7 +148,7 @@ window.__ModuleLoader__.load({
 		/** One stable controller is shared by all entries mounted for the same session. */
 		var MessageEditController = class {
 			sessionId;
-			store = (0, _deepseek_ai_dsh_client_runtime_client.createSnapshotStore)({
+			store = (0, _deepseek_ai_dsh_client_store.createSnapshotStore)({
 				status: "idle",
 				error: null,
 				pending: null,
@@ -187,7 +175,7 @@ window.__ModuleLoader__.load({
 			constructor(ctx, sessionId) {
 				this.sessionId = sessionId;
 				this.ctx = ctx;
-				this.sessions = ctx.get("sessions");
+				this.sessions = ctx.sessions;
 				this.face = {
 					hooks: { messageEdit: this.store },
 					acquire: () => {
@@ -286,14 +274,14 @@ window.__ModuleLoader__.load({
 				};
 			}
 			bindSessionSource() {
-				const source = this.sessions.binding(this.sessionId)?.session;
+				const source = this.sessions.binding(this.sessionId)?.eventSource;
 				if (source === this.sessionSource) return false;
 				this.sessionSourceDispose?.();
 				this.sessionSource = source;
-				this.sessionRevision = source === void 0 ? void 0 : conversationRevision(source.getSnapshot());
+				this.sessionRevision = source === void 0 ? void 0 : source.getSnapshot().revision;
 				this.sessionSourceDispose = source?.subscribe(() => {
 					if (this.sessionSource !== source) return;
-					const revision = conversationRevision(source.getSnapshot());
+					const revision = source.getSnapshot().revision;
 					if (revision === this.sessionRevision) return;
 					this.sessionRevision = revision;
 					this.invalidate();
@@ -378,25 +366,19 @@ window.__ModuleLoader__.load({
 			* resolved (subagent session, absent connection, RPC failure) the host falls
 			* back to the history-derived route. */
 			async composerRoute() {
-				const connection = this.ctx.get("connection");
-				if (connection === void 0 || connection.api === void 0) return void 0;
-				try {
-					const result = (await connection.api.sessions.models({ sessionId: this.sessionId })).result;
-					if (result.ok !== true) return void 0;
-					const current = result.value.current;
-					if (current === void 0) return void 0;
-					if (typeof current.provider !== "string" || current.provider.length === 0) return void 0;
-					if (typeof current.model !== "string" || current.model.length === 0) return void 0;
-					const reasoningEffort = current.reasoningEffort;
-					if (reasoningEffort !== void 0 && (typeof reasoningEffort !== "string" || reasoningEffort.length === 0)) return;
-					return {
-						provider: current.provider,
-						model: current.model,
-						...reasoningEffort === void 0 ? {} : { reasoningEffort }
-					};
-				} catch {
-					return;
-				}
+				const projection = this.sessions.binding(this.sessionId)?.session.projections.faceOf("modelSelection").getSnapshot();
+				if (typeof projection !== "object" || projection === null || !("next" in projection)) return void 0;
+				const current = projection.next;
+				if (typeof current !== "object" || current === null) return void 0;
+				if (!("provider" in current) || typeof current.provider !== "string" || !current.provider) return void 0;
+				if (!("model" in current) || typeof current.model !== "string" || !current.model) return void 0;
+				const reasoningEffort = "reasoningEffort" in current ? current.reasoningEffort : void 0;
+				if (reasoningEffort !== void 0 && (typeof reasoningEffort !== "string" || !reasoningEffort)) return void 0;
+				return {
+					provider: current.provider,
+					model: current.model,
+					...reasoningEffort === void 0 ? {} : { reasoningEffort }
+				};
 			}
 			async mutate(operation) {
 				const current = this.store.getSnapshot();
@@ -420,9 +402,6 @@ window.__ModuleLoader__.load({
 						body: JSON.stringify(payload)
 					})));
 					if (this.disposed) return true;
-					if (operation.action === "fork" && operation.workspaceId !== void 0) try {
-						await this.ctx.get("workspaces")?.refresh?.();
-					} catch {}
 					this.store.update((state) => {
 						state.pending = null;
 					});
@@ -478,15 +457,15 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var InlineMessageEdit_module_css_default = {
-			"input": "Ps3QDa_input",
-			"title": "Ps3QDa_title",
 			"panel": "Ps3QDa_panel",
-			"footer": "Ps3QDa_footer",
-			"pickerItem": "Ps3QDa_pickerItem",
 			"pickerItemActive": "Ps3QDa_pickerItemActive",
-			"overlay": "Ps3QDa_overlay",
+			"input": "Ps3QDa_input",
 			"iconButton": "Ps3QDa_iconButton",
-			"picker": "Ps3QDa_picker"
+			"footer": "Ps3QDa_footer",
+			"picker": "Ps3QDa_picker",
+			"title": "Ps3QDa_title",
+			"overlay": "Ps3QDa_overlay",
+			"pickerItem": "Ps3QDa_pickerItem"
 		};
 		//#endregion
 		//#region src/client/InlineMessageEdit.tsx
@@ -783,9 +762,9 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var MessageEditHeader_module_css_default = {
-			"rerollButton": "ovpcJa_rerollButton",
 			"iconButton": "ovpcJa_iconButton",
 			"root": "ovpcJa_root",
+			"rerollButton": "ovpcJa_rerollButton",
 			"counter": "ovpcJa_counter"
 		};
 		//#endregion
@@ -861,74 +840,74 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var MessageEditTimelineView_module_css_default = {
-			"select": "hbVeaa_select",
-			"turnTitle": "hbVeaa_turnTitle",
-			"error": "hbVeaa_error",
-			"title": "hbVeaa_title",
-			"cascadeField": "hbVeaa_cascadeField",
-			"messageTextCollapsed": "hbVeaa_messageTextCollapsed",
-			"editedBadge": "hbVeaa_editedBadge",
-			"sectionHeading": "hbVeaa_sectionHeading",
 			"actionRow": "hbVeaa_actionRow",
-			"turnHeader": "hbVeaa_turnHeader",
-			"messageHeader": "hbVeaa_messageHeader",
-			"workspaceSelect": "hbVeaa_workspaceSelect",
-			"emptyState": "hbVeaa_emptyState",
-			"turnList": "hbVeaa_turnList",
-			"messageSpacer": "hbVeaa_messageSpacer",
-			"turnSection": "hbVeaa_turnSection",
-			"notice": "hbVeaa_notice",
-			"status": "hbVeaa_status",
-			"effectDepth": "hbVeaa_effectDepth",
-			"versionDiff": "hbVeaa_versionDiff",
-			"versionButton": "hbVeaa_versionButton",
-			"versionDot": "hbVeaa_versionDot",
-			"editor": "hbVeaa_editor",
-			"composerFooter": "hbVeaa_composerFooter",
-			"messageList": "hbVeaa_messageList",
-			"effectControls": "hbVeaa_effectControls",
-			"turnsPanel": "hbVeaa_turnsPanel",
-			"turnActions": "hbVeaa_turnActions",
-			"pageHeader": "hbVeaa_pageHeader",
-			"primaryButton": "hbVeaa_primaryButton",
-			"kindBadge": "hbVeaa_kindBadge",
+			"textarea": "hbVeaa_textarea",
+			"pathBadge": "hbVeaa_pathBadge",
 			"secondaryButton": "hbVeaa_secondaryButton",
-			"editorHint": "hbVeaa_editorHint",
-			"changeChip": "hbVeaa_changeChip",
-			"messageCard": "hbVeaa_messageCard",
-			"versionMain": "hbVeaa_versionMain",
-			"versionLine": "hbVeaa_versionLine",
-			"workspaceField": "hbVeaa_workspaceField",
-			"newBadge": "hbVeaa_newBadge",
+			"emptyState": "hbVeaa_emptyState",
+			"effectControls": "hbVeaa_effectControls",
+			"root": "hbVeaa_root",
 			"versionList": "hbVeaa_versionList",
+			"kindBadge": "hbVeaa_kindBadge",
+			"status": "hbVeaa_status",
+			"turnList": "hbVeaa_turnList",
+			"editedBadge": "hbVeaa_editedBadge",
+			"turnsPanel": "hbVeaa_turnsPanel",
+			"columns": "hbVeaa_columns",
+			"editorActions": "hbVeaa_editorActions",
+			"editorHint": "hbVeaa_editorHint",
+			"collapseTurnButton": "hbVeaa_collapseTurnButton",
+			"sectionHeading": "hbVeaa_sectionHeading",
+			"effectDepth": "hbVeaa_effectDepth",
+			"dragHandle": "hbVeaa_dragHandle",
+			"editor": "hbVeaa_editor",
+			"turnHeaderLeft": "hbVeaa_turnHeaderLeft",
+			"turnTitle": "hbVeaa_turnTitle",
+			"versionLine": "hbVeaa_versionLine",
+			"messageText": "hbVeaa_messageText",
+			"versionDot": "hbVeaa_versionDot",
+			"messageTextCollapsed": "hbVeaa_messageTextCollapsed",
+			"workspaceSelect": "hbVeaa_workspaceSelect",
+			"changeChip": "hbVeaa_changeChip",
+			"title": "hbVeaa_title",
+			"newBadge": "hbVeaa_newBadge",
+			"notice": "hbVeaa_notice",
+			"versionTitle": "hbVeaa_versionTitle",
+			"pageHeader": "hbVeaa_pageHeader",
+			"versionsPanel": "hbVeaa_versionsPanel",
+			"versionMeta": "hbVeaa_versionMeta",
+			"versionButton": "hbVeaa_versionButton",
+			"composerFooter": "hbVeaa_composerFooter",
+			"primaryButton": "hbVeaa_primaryButton",
 			"currentBadge": "hbVeaa_currentBadge",
-			"versionItem": "hbVeaa_versionItem",
-			"count": "hbVeaa_count",
-			"batchActions": "hbVeaa_batchActions",
 			"intro": "hbVeaa_intro",
 			"changeSummary": "hbVeaa_changeSummary",
-			"versionMeta": "hbVeaa_versionMeta",
-			"textarea": "hbVeaa_textarea",
-			"turnPreview": "hbVeaa_turnPreview",
-			"messageTime": "hbVeaa_messageTime",
-			"messageTextWrapper": "hbVeaa_messageTextWrapper",
+			"workspaceField": "hbVeaa_workspaceField",
 			"subtitle": "hbVeaa_subtitle",
-			"versionsPanel": "hbVeaa_versionsPanel",
-			"turnHeaderLeft": "hbVeaa_turnHeaderLeft",
+			"messageList": "hbVeaa_messageList",
+			"versionItem": "hbVeaa_versionItem",
+			"versionMain": "hbVeaa_versionMain",
+			"batchActions": "hbVeaa_batchActions",
+			"cascadeField": "hbVeaa_cascadeField",
 			"effectButtons": "hbVeaa_effectButtons",
-			"dragHandle": "hbVeaa_dragHandle",
-			"checkbox": "hbVeaa_checkbox",
+			"turnHeader": "hbVeaa_turnHeader",
+			"messageTextWrapper": "hbVeaa_messageTextWrapper",
 			"headerActions": "hbVeaa_headerActions",
-			"messageText": "hbVeaa_messageText",
-			"collapseTurnButton": "hbVeaa_collapseTurnButton",
+			"messageTime": "hbVeaa_messageTime",
+			"checkbox": "hbVeaa_checkbox",
+			"count": "hbVeaa_count",
+			"turnSection": "hbVeaa_turnSection",
+			"error": "hbVeaa_error",
 			"empty": "hbVeaa_empty",
-			"expandButton": "hbVeaa_expandButton",
-			"pathBadge": "hbVeaa_pathBadge",
-			"versionTitle": "hbVeaa_versionTitle",
-			"editorActions": "hbVeaa_editorActions",
 			"textButton": "hbVeaa_textButton",
-			"columns": "hbVeaa_columns",
-			"root": "hbVeaa_root"
+			"versionDiff": "hbVeaa_versionDiff",
+			"turnPreview": "hbVeaa_turnPreview",
+			"select": "hbVeaa_select",
+			"expandButton": "hbVeaa_expandButton",
+			"messageSpacer": "hbVeaa_messageSpacer",
+			"messageHeader": "hbVeaa_messageHeader",
+			"messageCard": "hbVeaa_messageCard",
+			"turnActions": "hbVeaa_turnActions"
 		};
 		//#endregion
 		//#region src/client/MessageEditTimelineView.tsx

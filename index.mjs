@@ -1,5 +1,4 @@
 import { installModelSelection } from "@deepseek-ai/dsh-agent";
-import { KNOWN_SESSION_EVENT_TYPES } from "@deepseek-ai/dsh-session";
 //#region src/shared.ts
 /** Same-origin endpoint owned by the Message Edit host plugin. */
 const MESSAGE_EDIT_PATH = "/message-edit";
@@ -9,7 +8,6 @@ const MESSAGE_EDIT_VIEW_ORDER = 15;
 const MESSAGE_EDIT_VERSION_SCHEMA = 2;
 //#endregion
 //#region src/index.ts
-KNOWN_SESSION_EVENT_TYPES.add("message-edit/version");
 /** Stable Cordis plugin name. */
 const name = "message-edit";
 /** Public services used by the branch transaction and timeline projection. */
@@ -19,7 +17,8 @@ const inject = [
 	"sessionPersistence",
 	"sessionQuery",
 	"workspaceRegistry",
-	"webServer"
+	"webServer",
+	"connection"
 ];
 function pairVersionEffect(sourceSessionId, effect) {
 	return {
@@ -790,9 +789,10 @@ async function withSourceAgent(ctx, sessionId, operation) {
 }
 function inheritedSeed(source, boundary) {
 	if (boundary === -1) return [];
-	const boundaryEvent = source.events[boundary];
+	const events = source.snapshotEvents();
+	const boundaryEvent = events[boundary];
 	if (boundary < 0 || boundaryEvent === void 0 || boundaryEvent.seq !== boundary) throw new Error("分支边界不是连续会话事件。");
-	return source.events.slice(0, boundary + 1);
+	return events.slice(0, boundary + 1);
 }
 /** Build seed envelopes locally; Session construction performs canonical validation and freezing. */
 function appendLogSeedEvent(events, type, data, ignorable = false) {
@@ -938,9 +938,10 @@ function versionSeed(source, plan) {
 	};
 }
 function sessionPreset(session) {
-	for (let index = session.events.length - 1; index >= 0; index -= 1) {
-		const event = session.events[index];
-		if (event?.type === "agent-preset/selected") return event.data.agentPreset;
+	const events = session.snapshotEvents();
+	for (let index = events.length - 1; index >= 0; index -= 1) {
+		const event = events[index];
+		if (event?.type === "agent-preset/selected") return event.data?.agentPreset;
 	}
 	return session.header.agentPreset;
 }
@@ -951,8 +952,9 @@ function resolveSourceTitle(ctx, source, proposedTitle) {
 		const resolved = titleService.resolve(source);
 		if (typeof resolved === "string" && resolved.length > 0) return resolved;
 	} catch {}
-	for (let index = source.events.length - 1; index >= 0; index -= 1) {
-		const event = source.events[index];
+	const events = source.snapshotEvents();
+	for (let index = events.length - 1; index >= 0; index -= 1) {
+		const event = events[index];
 		if (event?.type === "session/title" && typeof event.data === "object" && event.data !== null && "title" in event.data) {
 			const title = event.data.title;
 			if (typeof title === "string" && title.length > 0) return title;
@@ -984,7 +986,7 @@ async function createVersionAgent(ctx, source, childId, plan, options, route, ti
 		meta: {
 			...childCwd === void 0 ? {} : { cwd: childCwd },
 			parentSession: source.id,
-			seedLength: seed.inheritedLength,
+			isSeeded: seed.inheritedLength > 0,
 			...agentPreset === void 0 ? {} : { agentPreset }
 		},
 		agentOptions: options,
@@ -1030,7 +1032,7 @@ async function runOperation(ctx, operation) {
 		const childId = sessionIdOf(`session-${crypto.randomUUID()}`);
 		const inverses = [];
 		try {
-			const events = source.session.events;
+			const events = source.session.snapshotEvents();
 			const title = resolveSourceTitle(ctx, source.session, operation.title);
 			const workspace = operationWorkspace(ctx, sourceId, operation);
 			const targetCwd = operation.action === "fork" && operation.workspaceId !== void 0 ? workspace?.path : void 0;
@@ -1064,7 +1066,7 @@ async function runOperation(ctx, operation) {
 	});
 }
 function ownVersionEvent(header, events) {
-	const inherited = header.seedLength ?? 0;
+	const inherited = header.inheritedEventCount ?? header.seedLength ?? 0;
 	const ownEvents = events.filter((event) => event.type === "message-edit/version" && event.seq >= inherited);
 	if (ownEvents.length === 0) return void 0;
 	if (ownEvents.length > 1) throw new Error(`会话 ${header.id} 包含多个自身版本效果。`);
@@ -1137,7 +1139,7 @@ async function mapConcurrent(items, worker) {
 /** Full log for the requested session: live borrow, persisted inspection, query fallback. */
 async function readCurrentLog(ctx, sessionId) {
 	const live = ctx.sessions.get(sessionId);
-	if (live !== void 0) return live.events;
+	if (live !== void 0) return live.snapshotEvents();
 	const persistence = ctx.get("sessionPersistence");
 	if (persistence !== void 0) return (await persistence.inspect(sessionId)).events;
 	return (await ctx.sessionQuery.readSession(sessionId)).events;
@@ -1145,9 +1147,9 @@ async function readCurrentLog(ctx, sessionId) {
 /** Own-version scan window for one lineage node: the tail from the durable
 * seed boundary is enough, and root nodes cannot carry a version effect. */
 async function versionLog(ctx, record) {
-	const inherited = record.header.seedLength ?? 0;
+	const inherited = record.header.inheritedEventCount ?? record.header.seedLength ?? 0;
 	const live = ctx.sessions.get(record.header.id);
-	if (live !== void 0) return live.events.slice(inherited);
+	if (live !== void 0) return live.snapshotEvents().slice(inherited);
 	const persistence = ctx.get("sessionPersistence");
 	if (persistence !== void 0) return (await persistence.readFrom(record.header.id, inherited)).events;
 	return (await ctx.sessionQuery.readSession(record.header.id)).events.slice(inherited);
@@ -1354,6 +1356,11 @@ function respondJson(response, status, value) {
 	response.end(JSON.stringify(value));
 }
 async function handleRoute(ctx, request, response) {
+	const rejection = ctx.connection.requestRejection(request);
+	if (rejection !== void 0) {
+		respondJson(response, rejection, { error: rejection === 401 ? "Unauthorized" : "Forbidden" });
+		return;
+	}
 	try {
 		if (request.method === "GET") {
 			respondJson(response, 200, await timeline(ctx, sessionIdOf(new URL(request.url ?? "/message-edit", "http://message-edit.local").searchParams.get("sessionId"))));

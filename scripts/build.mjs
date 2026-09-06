@@ -22,6 +22,7 @@ function run(command, args) {
 const dist = join(pluginRoot, 'dist')
 await rm(dist, { recursive: true, force: true })
 await run(join(pluginRoot, 'node_modules/.bin/tsc'), ['-p', 'tsconfig.json'])
+await run(join(pluginRoot, 'node_modules/.bin/tsc'), ['-p', 'tsconfig.client.json'])
 await run(join(pluginRoot, 'node_modules/.bin/tsdown'), ['--config', 'tsdown.config.ts'])
 await copyFile(join(dist, 'index.js'), join(pluginRoot, 'index.mjs'))
 await copyFile(join(dist, 'client.js'), join(pluginRoot, 'client.js'))

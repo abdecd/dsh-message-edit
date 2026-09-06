@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": [],
+    "tsBuildInfoFile": "node_modules/.cache/tsconfig.client.tsbuildinfo"
+  },
+  "include": [
+    "src/client",
+    "src/shared.ts",
+    "src/css-modules.d.ts"
+  ]
+}

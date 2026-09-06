@@ -29,7 +29,7 @@ const CSS_VIRTUAL_SUFFIX = '.mjs'
  * runtime identity to share. Everything else under @deepseek-ai/* is either a
  * module-table entry (external) or a leak the purity gate rejects.
  */
-export const INLINE_SAFE = /^@deepseek-ai\/dsh-(host-apiproxy|session|llm|tools|brand)(\/|$)/
+export const INLINE_SAFE = /^@deepseek-ai\/dsh-(session|llm|tools|brand)(\/|$)/
 
 /** Vendored framework libraries: ordinary libraries a browser bundle inlines. */
 const VENDORED_LIBRARY = /^@deepseek-ai\/(cosmokit|schemastery)(\/|$)/
@@ -55,16 +55,8 @@ export const PLATFORM_MODULES: readonly string[] = [
   '@deepseek-ai/dsh-client-schema-form',
 ]
 
-/**
- * The snapshot-store engine (createSnapshotStore/defineStore/shallowEqual)
- * lives in runtime pending its promotion-time rehoming; at runtime the lazy
- * CJS table answers the require natively because runtime is an immediately-tier
- * row registered before any dependent bundle materializes.
- */
-const RUNTIME_STORE_EXEMPTION = '@deepseek-ai/dsh-client-runtime/client'
-
-/** Externals resolved from the loader module table. */
-export const CLIENT_EXTERNALS: readonly string[] = [...PLATFORM_MODULES, RUNTIME_STORE_EXEMPTION]
+/** Shared snapshot engine is a static platform module in 0.1.2. */
+export const CLIENT_EXTERNALS: readonly string[] = [...PLATFORM_MODULES, '@deepseek-ai/dsh-client-store']
 
 /** Resolve an emitted JS asset import against its source-tree counterpart. */
 function sourceAssetPath(source: string, importer: string): string {

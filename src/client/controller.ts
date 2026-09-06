@@ -1,15 +1,9 @@
 /** Browser controller for one session's Timeline projection and branch mutations. */
-import type {
-  ClientContext,
-  ConversationSnapshot,
-  ISessions,
-  ObservableSnapshot,
-  SessionFace,
-  SessionId,
-  SessionListState,
-  SnapshotStore,
-} from '@deepseek-ai/dsh-client-runtime/client'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { ISessions, SessionEventSource, SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import { createSnapshotStore, type ObservableSnapshot, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
+import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
 import {
   MESSAGE_EDIT_PATH,
   type CascadePolicy,
@@ -49,42 +43,6 @@ export interface MessageEditFace {
    * An optional workspace id places the child in that workspace. */
   fork(rows: ForkMessageRow[], workspaceId?: string): Promise<boolean>
   openVersion(sessionId: string): Promise<void>
-}
-
-/** The selection the chat input currently targets for one session: the same
- * model and reasoning effort the composer's controls use for the next ordinary
- * prompt. Structural view of the `session.models` wire face so the client half
- * stays free of value imports into the connection package. */
-interface ComposerModelSelection {
-  provider: string
-  model: string
-  reasoningEffort?: string
-}
-
-interface ComposerModelsResult {
-  ok: true
-  value: { current: ComposerModelSelection }
-}
-
-interface ComposerModelsFailure {
-  ok: false
-  error: { message?: string }
-}
-
-interface ConnectionModelsApi {
-  sessions: {
-    models(payload: { sessionId: string }): Promise<{ result: ComposerModelsResult | ComposerModelsFailure }>
-  }
-}
-
-interface ConnectionHandleLike {
-  readonly api: ConnectionModelsApi
-}
-
-/** The concrete WorkspaceRuntime exposes a baseline refresh although the
- * feature-facing IWorkspaces contract intentionally keeps writes narrow. */
-interface WorkspaceRuntimeLike {
-  refresh?: () => Promise<void>
 }
 
 function messageOf(error: unknown): string {
@@ -228,23 +186,6 @@ async function responseValue(response: Response): Promise<unknown> {
   throw new Error(typeof error === 'string' ? error : `请求失败：HTTP ${String(response.status)}`)
 }
 
-function conversationRevision(snapshot: ConversationSnapshot): string {
-  const turnEnds = [...snapshot.turnEnds.entries()]
-    .map(([turn, seq]) => `${String(turn)}:${String(seq)}`)
-    .join(',')
-  const nodeKeys = snapshot.nodes
-    .map(node => `${node.kind}:${String(node.seq)}`)
-    .join(',')
-  return [
-    snapshot.openState,
-    snapshot.removed,
-    snapshot.hasMore,
-    snapshot.running ? '1' : '0',
-    turnEnds,
-    nodeKeys,
-  ].join('|')
-}
-
 function lineageRevision(snapshot: SessionListState, sessionId: SessionId): string {
   let root = sessionId
   const ancestorIds = new Set<SessionId>()
@@ -285,9 +226,9 @@ export class MessageEditController {
   private generation = 0
   private readonly ctx: ClientContext
   private readonly sessions: ISessions
-  private sessionSource: SessionFace | undefined
+  private sessionSource: SessionEventSource | undefined
   private sessionSourceDispose: (() => void) | undefined
-  private sessionRevision: string | undefined
+  private sessionRevision: number | undefined
   private listRevision = ''
   private refreshScheduled = false
   private refreshTimer: ReturnType<typeof setTimeout> | undefined
@@ -305,7 +246,7 @@ export class MessageEditController {
     private readonly sessionId: SessionId,
   ) {
     this.ctx = ctx
-    this.sessions = ctx.get('sessions') as unknown as ISessions
+    this.sessions = ctx.sessions
     this.face = {
       hooks: { messageEdit: this.store },
       acquire: () => {
@@ -408,14 +349,14 @@ export class MessageEditController {
   }
 
   private bindSessionSource(): boolean {
-    const source = this.sessions.binding(this.sessionId)?.session
+    const source = this.sessions.binding(this.sessionId)?.eventSource
     if (source === this.sessionSource) return false
     this.sessionSourceDispose?.()
     this.sessionSource = source
-    this.sessionRevision = source === undefined ? undefined : conversationRevision(source.getSnapshot())
+    this.sessionRevision = source === undefined ? undefined : source.getSnapshot().revision
     this.sessionSourceDispose = source?.subscribe(() => {
       if (this.sessionSource !== source) return
-      const revision = conversationRevision(source.getSnapshot())
+      const revision = source.getSnapshot().revision
       if (revision === this.sessionRevision) return
       this.sessionRevision = revision
       this.invalidate()
@@ -507,30 +448,15 @@ export class MessageEditController {
    * resolved (subagent session, absent connection, RPC failure) the host falls
    * back to the history-derived route. */
   private async composerRoute(): Promise<ModelRoute | undefined> {
-    const connection = this.ctx.get('connection') as ConnectionHandleLike | undefined
-    if (connection === undefined || connection.api === undefined) return undefined
-    try {
-      const response = await connection.api.sessions.models({ sessionId: this.sessionId })
-      const result = response.result
-      if (result.ok !== true) return undefined
-      const current = result.value.current
-      if (current === undefined) return undefined
-      if (typeof current.provider !== 'string' || current.provider.length === 0) return undefined
-      if (typeof current.model !== 'string' || current.model.length === 0) return undefined
-      const reasoningEffort = current.reasoningEffort
-      if (reasoningEffort !== undefined && (typeof reasoningEffort !== 'string' || reasoningEffort.length === 0)) {
-        return undefined
-      }
-      return {
-        provider: current.provider,
-        model: current.model,
-        // An omitted effort is meaningful: it asks the selected model to use
-        // its provider default instead of inheriting the historical effort.
-        ...reasoningEffort === undefined ? {} : { reasoningEffort },
-      }
-    } catch {
-      return undefined
-    }
+    const projection = this.sessions.binding(this.sessionId)?.session.projections.faceOf('modelSelection').getSnapshot()
+    if (typeof projection !== 'object' || projection === null || !('next' in projection)) return undefined
+    const current = projection.next
+    if (typeof current !== 'object' || current === null) return undefined
+    if (!('provider' in current) || typeof current.provider !== 'string' || !current.provider) return undefined
+    if (!('model' in current) || typeof current.model !== 'string' || !current.model) return undefined
+    const reasoningEffort = 'reasoningEffort' in current ? current.reasoningEffort : undefined
+    if (reasoningEffort !== undefined && (typeof reasoningEffort !== 'string' || !reasoningEffort)) return undefined
+    return { provider: current.provider, model: current.model, ...reasoningEffort === undefined ? {} : { reasoningEffort } }
   }
 
   private async mutate(operation: MessageEditOperation): Promise<boolean> {
@@ -553,13 +479,7 @@ export class MessageEditController {
       })
       const result = decodeOperationResult(await responseValue(response))
       if (this.disposed) return true
-      if (operation.action === 'fork' && operation.workspaceId !== undefined) {
-        try {
-          await (this.ctx.get('workspaces') as WorkspaceRuntimeLike | undefined)?.refresh?.()
-        } catch {
-          // The host operation already succeeded; a stream refresh can retry later.
-        }
-      }
+      // Workspace membership follows the controller-owned baseline/delta stream.
       this.store.update((state) => { state.pending = null })
       await this.openWhenListed(result.sessionId as SessionId)
       return true

@@ -1,9 +1,11 @@
 /** Host half of Message Edit: turn-atomic forks and structurally reversible versions. */
 import type { Context } from '@deepseek-ai/cordis'
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import type {} from '@deepseek-ai/dsh-client-connection'
+import type {} from '@deepseek-ai/dsh-host-webserver'
 import { installModelSelection, type Agent, type AgentHandle, type AgentOptions, type AgentSetup, type ModelSelectionRef } from '@deepseek-ai/dsh-agent'
-import type { PresetBearingSession } from '@deepseek-ai/dsh-agent-presets'
+// import type { PresetBearingSession } from '@deepseek-ai/dsh-agent-presets'
 import {
-  KNOWN_SESSION_EVENT_TYPES,
   type SessionId,
   type Session,
   type SessionEvent,
@@ -14,14 +16,13 @@ import {
   type RequestContext,
   type RequestHeaderReason,
 } from '@deepseek-ai/dsh-session'
-;(KNOWN_SESSION_EVENT_TYPES as Set<string>).add('message-edit/version')
 import type {
   SessionLineageNode,
   SessionRecord,
 } from '@deepseek-ai/dsh-session-query'
 import type {
   AssistantMessage,
-  CallId,
+  ToolCallId,
   ContentBlock,
   MessageId,
   ReasoningEffortId,
@@ -83,33 +84,6 @@ declare module '@deepseek-ai/dsh-session' {
   }
 }
 
-interface HttpRequestLike {
-  method?: string
-  url?: string
-  on(event: 'data', listener: (chunk: Uint8Array | string) => void): this
-  on(event: 'end', listener: () => void): this
-  on(event: 'error', listener: (error: unknown) => void): this
-}
-
-interface HttpResponseLike {
-  writeHead(status: number, headers?: Record<string, string>): unknown
-  end(body?: string): void
-}
-
-interface HttpServerLike {
-  register(route: {
-    kind: 'exact'
-    path: string
-    handler: (request: HttpRequestLike, response: HttpResponseLike) => void | Promise<void>
-  }): () => void
-}
-
-declare module '@deepseek-ai/cordis' {
-  interface Context {
-    webServer: HttpServerLike
-  }
-}
-
 /** Stable Cordis plugin name. */
 export const name = 'message-edit'
 
@@ -121,6 +95,7 @@ export const inject = [
   'sessionQuery',
   'workspaceRegistry',
   'webServer',
+  'connection',
 ]
 
 type UserEvent = SessionEvent<'user/message'>
@@ -221,7 +196,7 @@ function newInjectedUserMessage(text: string): UserMessage {
   }) as UserMessage
 }
 
-function newToolResultMessage(text: string, callId = crypto.randomUUID() as CallId): ToolResultMessage {
+function newToolResultMessage(text: string, callId = crypto.randomUUID() as ToolCallId): ToolResultMessage {
   return Object.freeze({
     id: crypto.randomUUID() as MessageId,
     role: 'user' as const,
@@ -745,7 +720,7 @@ function fallbackAssistantForToolResult(
 ): AssistantMessage | undefined {
   const resultEvent = sourceEvent(row, events)
   const result = resultEvent?.type === 'tool/result' ? resultEvent : undefined
-  const callId = (result?.data.message.source.callId ?? row.callId) as CallId | undefined
+  const callId = (result?.data.message.source.callId ?? row.callId) as ToolCallId | undefined
   if (callId === undefined) return undefined
 
   let exactBlock: Extract<ContentBlock, { type: 'tool-call' }> | undefined
@@ -846,7 +821,7 @@ function groupForkRowsToTurns(
       if (row.kind === 'assistant.response') return row.text.length === 0 ? [] : [{ type: 'text', text: row.text }]
       if (row.kind === 'tool.call') return [{
         type: 'tool-call',
-        id: (row.callId || crypto.randomUUID()) as CallId,
+        id: (row.callId || crypto.randomUUID()) as ToolCallId,
         name: row.toolName || 'tool',
         arguments: row.text || '{}',
       }]
@@ -906,7 +881,7 @@ function groupForkRowsToTurns(
       flushAssistant(current)
       const cloned = sourceToolResult(row, events)
       const toolResult = cloned?.toolResult
-        ?? newToolResultMessage(row.text, row.callId as CallId | undefined)
+        ?? newToolResultMessage(row.text, row.callId as ToolCallId | undefined)
       const fallbackAssistant = fallbackAssistantForToolResult(row, events, route) ?? {
         id: crypto.randomUUID() as MessageId,
         role: 'assistant' as const,
@@ -1083,11 +1058,12 @@ async function withSourceAgent<T>(
 
 function inheritedSeed(source: Session, boundary: number): SessionEvent[] {
   if (boundary === -1) return []
-  const boundaryEvent = source.events[boundary]
+  const events = source.snapshotEvents()
+  const boundaryEvent = events[boundary]
   if (boundary < 0 || boundaryEvent === undefined || boundaryEvent.seq !== boundary) {
     throw new Error('分支边界不是连续会话事件。')
   }
-  return source.events.slice(0, boundary + 1)
+  return events.slice(0, boundary + 1)
 }
 
 /** Build seed envelopes locally; Session construction performs canonical validation and freezing. */
@@ -1135,7 +1111,7 @@ function appendManualTurn(
 
   let step = 1
   let stepOpen = false
-  const pendingCalls = new Set<CallId>()
+  const pendingCalls = new Set<ToolCallId>()
 
   const closeStep = (): void => {
     if (!stepOpen) return
@@ -1269,10 +1245,11 @@ function versionSeed(source: Session, plan: OperationPlan): {
   return { events, inheritedLength }
 }
 
-function sessionPreset(session: PresetBearingSession): string | undefined {
-  for (let index = session.events.length - 1; index >= 0; index -= 1) {
-    const event = session.events[index]
-    if (event?.type === 'agent-preset/selected') return event.data.agentPreset
+function sessionPreset(session: Session): string | undefined {
+  const events = session.snapshotEvents()
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index] as { type: string; data?: { agentPreset?: string } } | undefined
+    if (event?.type === 'agent-preset/selected') return event.data?.agentPreset
   }
   return session.header.agentPreset
 }
@@ -1292,8 +1269,9 @@ function resolveSourceTitle(
       // ignore
     }
   }
-  for (let index = source.events.length - 1; index >= 0; index -= 1) {
-    const event = source.events[index]
+  const events = source.snapshotEvents()
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]
     if (event?.type === 'session/title' && typeof event.data === 'object' && event.data !== null && 'title' in event.data) {
       const title = (event.data as { title: unknown }).title
       if (typeof title === 'string' && title.length > 0) return title
@@ -1340,7 +1318,7 @@ async function createVersionAgent(
     meta: {
       ...childCwd === undefined ? {} : { cwd: childCwd },
       parentSession: source.id,
-      seedLength: seed.inheritedLength,
+      isSeeded: seed.inheritedLength > 0,
       ...agentPreset === undefined ? {} : { agentPreset },
     },
     agentOptions: options,
@@ -1402,7 +1380,7 @@ async function runOperation(ctx: Context, operation: MessageEditOperation): Prom
     const childId = sessionIdOf(`session-${crypto.randomUUID()}`)
     const inverses: OperationInverse[] = []
     try {
-      const events = source.session.events
+      const events = source.session.snapshotEvents()
       const title = resolveSourceTitle(ctx, source.session, operation.title)
       const workspace = operationWorkspace(ctx, sourceId, operation)
       const targetCwd = operation.action === 'fork' && operation.workspaceId !== undefined
@@ -1452,7 +1430,7 @@ function ownVersionEvent(
   header: SessionRecord['header'],
   events: readonly SessionEvent[],
 ): VersionProjection | undefined {
-  const inherited = header.seedLength ?? 0
+  const inherited = (header as any).inheritedEventCount ?? (header as any).seedLength ?? 0
   const ownEvents = events.filter((event): event is SessionEvent<'message-edit/version'> => (
     event.type === 'message-edit/version' && event.seq >= inherited
   ))
@@ -1548,7 +1526,7 @@ async function mapConcurrent<T, R>(
 /** Full log for the requested session: live borrow, persisted inspection, query fallback. */
 async function readCurrentLog(ctx: Context, sessionId: SessionId): Promise<readonly SessionEvent[]> {
   const live = ctx.sessions.get(sessionId)
-  if (live !== undefined) return live.events
+  if (live !== undefined) return live.snapshotEvents()
   const persistence = ctx.get('sessionPersistence') as PersistenceReaderLike | undefined
   if (persistence !== undefined) return (await persistence.inspect(sessionId)).events
   return (await ctx.sessionQuery.readSession(sessionId)).events
@@ -1557,9 +1535,9 @@ async function readCurrentLog(ctx: Context, sessionId: SessionId): Promise<reado
 /** Own-version scan window for one lineage node: the tail from the durable
  * seed boundary is enough, and root nodes cannot carry a version effect. */
 async function versionLog(ctx: Context, record: SessionRecord): Promise<readonly SessionEvent[]> {
-  const inherited = record.header.seedLength ?? 0
+  const inherited = (record.header as any).inheritedEventCount ?? (record.header as any).seedLength ?? 0
   const live = ctx.sessions.get(record.header.id)
-  if (live !== undefined) return live.events.slice(inherited)
+  if (live !== undefined) return live.snapshotEvents().slice(inherited)
   const persistence = ctx.get('sessionPersistence') as PersistenceReaderLike | undefined
   if (persistence !== undefined) return (await persistence.readFrom(record.header.id, inherited)).events
   return (await ctx.sessionQuery.readSession(record.header.id)).events.slice(inherited)
@@ -1774,7 +1752,7 @@ function decodeOperation(value: unknown): MessageEditOperation {
   }
 }
 
-function requestJson(request: HttpRequestLike): Promise<unknown> {
+function requestJson(request: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const decoder = new TextDecoder()
     let text = ''
@@ -1793,7 +1771,7 @@ function requestJson(request: HttpRequestLike): Promise<unknown> {
   })
 }
 
-function respondJson(response: HttpResponseLike, status: number, value: unknown): void {
+function respondJson(response: ServerResponse, status: number, value: unknown): void {
   response.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
@@ -1801,7 +1779,13 @@ function respondJson(response: HttpResponseLike, status: number, value: unknown)
   response.end(JSON.stringify(value))
 }
 
-async function handleRoute(ctx: Context, request: HttpRequestLike, response: HttpResponseLike): Promise<void> {
+async function handleRoute(ctx: Context, request: IncomingMessage, response: ServerResponse): Promise<void> {
+  // Raw WebServer routes do not inherit Connection's Host/Origin and cookie gate.
+  const rejection = ctx.connection.requestRejection(request)
+  if (rejection !== undefined) {
+    respondJson(response, rejection, { error: rejection === 401 ? 'Unauthorized' : 'Forbidden' })
+    return
+  }
   try {
     if (request.method === 'GET') {
       const url = new URL(request.url ?? MESSAGE_EDIT_PATH, 'http://message-edit.local')
