@@ -1,6 +1,6 @@
 /** Browser controller for one session's Timeline projection and branch mutations. */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-import type { ISessions, SessionEventSource, SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { ISessions, SessionEventSource, SessionFace, SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { createSnapshotStore, type ObservableSnapshot, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
@@ -228,7 +228,11 @@ export class MessageEditController {
   private readonly sessions: ISessions
   private sessionSource: SessionEventSource | undefined
   private sessionSourceDispose: (() => void) | undefined
+  private sessionFace: SessionFace | undefined
+  private sessionFaceDispose: (() => void) | undefined
   private sessionRevision: number | undefined
+  private sessionRunning = false
+  private pendingTurnRefresh = false
   private listRevision = ''
   private refreshScheduled = false
   private refreshTimer: ReturnType<typeof setTimeout> | undefined
@@ -312,6 +316,15 @@ export class MessageEditController {
     }
     this.abort?.abort()
     this.abort = null
+    this.sessionSourceDispose?.()
+    this.sessionSourceDispose = undefined
+    this.sessionSource = undefined
+    this.sessionFaceDispose?.()
+    this.sessionFaceDispose = undefined
+    this.sessionFace = undefined
+    this.sessionRevision = undefined
+    this.sessionRunning = false
+    this.pendingTurnRefresh = false
     void this.disposeObservation?.()
     this.disposeObservation = undefined
   }
@@ -329,10 +342,21 @@ export class MessageEditController {
     this.observing = true
     this.listRevision = lineageRevision(this.sessions.list.getSnapshot(), this.sessionId)
     this.bindSessionSource()
+    this.bindSessionFace()
+    this.sessionRunning = this.isSessionRunning()
     const disposeList = this.sessions.list.subscribe(() => {
-      const rebound = this.bindSessionSource()
+      const reboundSource = this.bindSessionSource()
+      const reboundFace = this.bindSessionFace()
+      const running = this.isSessionRunning()
+      if (this.sessionRunning !== running) {
+        this.sessionRunning = running
+        if (!running && this.pendingTurnRefresh) {
+          this.pendingTurnRefresh = false
+          this.invalidate()
+        }
+      }
       const nextRevision = lineageRevision(this.sessions.list.getSnapshot(), this.sessionId)
-      if (nextRevision === this.listRevision && !rebound) return
+      if (nextRevision === this.listRevision && !reboundSource && !reboundFace) return
       this.listRevision = nextRevision
       this.invalidate()
     })
@@ -343,9 +367,49 @@ export class MessageEditController {
       this.sessionSourceDispose?.()
       this.sessionSourceDispose = undefined
       this.sessionSource = undefined
+      this.sessionFaceDispose?.()
+      this.sessionFaceDispose = undefined
+      this.sessionFace = undefined
       this.sessionRevision = undefined
+      this.sessionRunning = false
+      this.pendingTurnRefresh = false
       for (const cancel of [...this.navigationWaits]) cancel()
     }
+  }
+
+  private isSessionRunning(): boolean {
+    const binding = this.sessions.binding(this.sessionId)
+    if (typeof binding?.session?.getSnapshot === 'function') {
+      const running = binding.session.getSnapshot()?.running
+      if (typeof running === 'boolean') return running
+    }
+    const fromList = this.sessions.list.getSnapshot().byId[this.sessionId]?.running
+    if (typeof fromList === 'boolean') return fromList
+    return false
+  }
+
+  private bindSessionFace(): boolean {
+    const session = this.sessions.binding(this.sessionId)?.session
+    if (session === this.sessionFace) return false
+    this.sessionFaceDispose?.()
+    this.sessionFace = session
+    if (typeof session?.subscribe === 'function' && typeof session?.getSnapshot === 'function') {
+      this.sessionRunning = Boolean(session.getSnapshot()?.running)
+      this.sessionFaceDispose = session.subscribe(() => {
+        if (this.sessionFace !== session) return
+        const running = Boolean(session.getSnapshot()?.running)
+        if (this.sessionRunning !== running) {
+          this.sessionRunning = running
+          if (!running && this.pendingTurnRefresh) {
+            this.pendingTurnRefresh = false
+            this.invalidate()
+          }
+        }
+      })
+    } else {
+      this.sessionFaceDispose = undefined
+    }
+    return true
   }
 
   private bindSessionSource(): boolean {
@@ -359,6 +423,10 @@ export class MessageEditController {
       const revision = source.getSnapshot().revision
       if (revision === this.sessionRevision) return
       this.sessionRevision = revision
+      if (this.isSessionRunning()) {
+        this.pendingTurnRefresh = true
+        return
+      }
       this.invalidate()
     })
     return true
@@ -395,7 +463,9 @@ export class MessageEditController {
     const abort = new AbortController()
     this.abort = abort
     this.store.update((state) => {
-      state.status = 'loading'
+      if (state.status === 'idle') {
+        state.status = 'loading'
+      }
       state.error = null
     })
     const run = this.performLoad(generation, abort)
@@ -460,7 +530,16 @@ export class MessageEditController {
   }
 
   private async mutate(operation: MessageEditOperation): Promise<boolean> {
-    const current = this.store.getSnapshot()
+    let current = this.store.getSnapshot()
+    if (current.pending !== null) return false
+    if (current.status !== 'ready') {
+      try {
+        await this.load()
+      } catch {
+        // Fall through to status check
+      }
+      current = this.store.getSnapshot()
+    }
     if (current.pending !== null || current.status !== 'ready') return false
     this.store.update((state) => {
       state.pending = operation.action
@@ -499,15 +578,27 @@ export class MessageEditController {
       this.sessions.open(sessionId)
       return Promise.resolve()
     }
+
+    // Proactively refresh the list to avoid relying solely on pushed event stream
+    void this.sessions.refresh()
+
     return new Promise((resolve) => {
       let settled = false
       let dispose = (): void => {}
+      let timer: ReturnType<typeof setTimeout> | undefined
       const finish = (open: boolean): void => {
         if (settled) return
         settled = true
+        if (timer !== undefined) clearTimeout(timer)
         dispose()
         this.navigationWaits.delete(cancel)
-        if (open) this.sessions.open(sessionId)
+        if (open) {
+          try {
+            this.sessions.open(sessionId)
+          } catch {
+            // fail-safe if not in list yet
+          }
+        }
         resolve()
       }
       const cancel = (): void => { finish(false) }
@@ -516,7 +607,23 @@ export class MessageEditController {
         if (this.sessions.list.getSnapshot().byId[sessionId] === undefined) return
         finish(true)
       })
-      if (this.sessions.list.getSnapshot().byId[sessionId] !== undefined) finish(true)
+      if (this.sessions.list.getSnapshot().byId[sessionId] !== undefined) {
+        finish(true)
+        return
+      }
+
+      // Fallback timer: re-pull if delayed, and force-attempt/finish if still missing
+      timer = setTimeout(() => {
+        if (this.sessions.list.getSnapshot().byId[sessionId] !== undefined) {
+          finish(true)
+        } else {
+          void this.sessions.refresh().then(() => {
+            finish(this.sessions.list.getSnapshot().byId[sessionId] !== undefined)
+          }).catch(() => {
+            finish(false)
+          })
+        }
+      }, 500)
     })
   }
 }

@@ -989,6 +989,7 @@ async function createVersionAgent(ctx, source, childId, plan, options, route, ti
 			isSeeded: seed.inheritedLength > 0,
 			...agentPreset === void 0 ? {} : { agentPreset }
 		},
+		...seed.inheritedLength > 0 ? { inheritedEventCount: seed.inheritedLength } : {},
 		agentOptions: options,
 		...setup === void 0 ? {} : { setup }
 	});

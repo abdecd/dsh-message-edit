@@ -1321,9 +1321,10 @@ async function createVersionAgent(
       isSeeded: seed.inheritedLength > 0,
       ...agentPreset === undefined ? {} : { agentPreset },
     },
+    ...seed.inheritedLength > 0 ? { inheritedEventCount: seed.inheritedLength } : {},
     agentOptions: options,
     ...setup === undefined ? {} : { setup },
-  })
+  } as any)
   try {
     if (title !== undefined) {
       const titleService = ctx.get('sessionTitle') as { rename?: (session: Session, title: string) => void } | undefined

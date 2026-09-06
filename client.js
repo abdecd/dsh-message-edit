@@ -160,7 +160,11 @@ window.__ModuleLoader__.load({
 			sessions;
 			sessionSource;
 			sessionSourceDispose;
+			sessionFace;
+			sessionFaceDispose;
 			sessionRevision;
+			sessionRunning = false;
+			pendingTurnRefresh = false;
 			listRevision = "";
 			refreshScheduled = false;
 			refreshTimer;
@@ -240,6 +244,15 @@ window.__ModuleLoader__.load({
 				}
 				this.abort?.abort();
 				this.abort = null;
+				this.sessionSourceDispose?.();
+				this.sessionSourceDispose = void 0;
+				this.sessionSource = void 0;
+				this.sessionFaceDispose?.();
+				this.sessionFaceDispose = void 0;
+				this.sessionFace = void 0;
+				this.sessionRevision = void 0;
+				this.sessionRunning = false;
+				this.pendingTurnRefresh = false;
 				this.disposeObservation?.();
 				this.disposeObservation = void 0;
 			}
@@ -255,10 +268,21 @@ window.__ModuleLoader__.load({
 				this.observing = true;
 				this.listRevision = lineageRevision(this.sessions.list.getSnapshot(), this.sessionId);
 				this.bindSessionSource();
+				this.bindSessionFace();
+				this.sessionRunning = this.isSessionRunning();
 				const disposeList = this.sessions.list.subscribe(() => {
-					const rebound = this.bindSessionSource();
+					const reboundSource = this.bindSessionSource();
+					const reboundFace = this.bindSessionFace();
+					const running = this.isSessionRunning();
+					if (this.sessionRunning !== running) {
+						this.sessionRunning = running;
+						if (!running && this.pendingTurnRefresh) {
+							this.pendingTurnRefresh = false;
+							this.invalidate();
+						}
+					}
 					const nextRevision = lineageRevision(this.sessions.list.getSnapshot(), this.sessionId);
-					if (nextRevision === this.listRevision && !rebound) return;
+					if (nextRevision === this.listRevision && !reboundSource && !reboundFace) return;
 					this.listRevision = nextRevision;
 					this.invalidate();
 				});
@@ -269,9 +293,45 @@ window.__ModuleLoader__.load({
 					this.sessionSourceDispose?.();
 					this.sessionSourceDispose = void 0;
 					this.sessionSource = void 0;
+					this.sessionFaceDispose?.();
+					this.sessionFaceDispose = void 0;
+					this.sessionFace = void 0;
 					this.sessionRevision = void 0;
+					this.sessionRunning = false;
+					this.pendingTurnRefresh = false;
 					for (const cancel of [...this.navigationWaits]) cancel();
 				};
+			}
+			isSessionRunning() {
+				const binding = this.sessions.binding(this.sessionId);
+				if (typeof binding?.session?.getSnapshot === "function") {
+					const running = binding.session.getSnapshot()?.running;
+					if (typeof running === "boolean") return running;
+				}
+				const fromList = this.sessions.list.getSnapshot().byId[this.sessionId]?.running;
+				if (typeof fromList === "boolean") return fromList;
+				return false;
+			}
+			bindSessionFace() {
+				const session = this.sessions.binding(this.sessionId)?.session;
+				if (session === this.sessionFace) return false;
+				this.sessionFaceDispose?.();
+				this.sessionFace = session;
+				if (typeof session?.subscribe === "function" && typeof session?.getSnapshot === "function") {
+					this.sessionRunning = Boolean(session.getSnapshot()?.running);
+					this.sessionFaceDispose = session.subscribe(() => {
+						if (this.sessionFace !== session) return;
+						const running = Boolean(session.getSnapshot()?.running);
+						if (this.sessionRunning !== running) {
+							this.sessionRunning = running;
+							if (!running && this.pendingTurnRefresh) {
+								this.pendingTurnRefresh = false;
+								this.invalidate();
+							}
+						}
+					});
+				} else this.sessionFaceDispose = void 0;
+				return true;
 			}
 			bindSessionSource() {
 				const source = this.sessions.binding(this.sessionId)?.eventSource;
@@ -284,6 +344,10 @@ window.__ModuleLoader__.load({
 					const revision = source.getSnapshot().revision;
 					if (revision === this.sessionRevision) return;
 					this.sessionRevision = revision;
+					if (this.isSessionRunning()) {
+						this.pendingTurnRefresh = true;
+						return;
+					}
 					this.invalidate();
 				});
 				return true;
@@ -317,7 +381,7 @@ window.__ModuleLoader__.load({
 				const abort = new AbortController();
 				this.abort = abort;
 				this.store.update((state) => {
-					state.status = "loading";
+					if (state.status === "idle") state.status = "loading";
 					state.error = null;
 				});
 				const run = this.performLoad(generation, abort);
@@ -381,7 +445,14 @@ window.__ModuleLoader__.load({
 				};
 			}
 			async mutate(operation) {
-				const current = this.store.getSnapshot();
+				let current = this.store.getSnapshot();
+				if (current.pending !== null) return false;
+				if (current.status !== "ready") {
+					try {
+						await this.load();
+					} catch {}
+					current = this.store.getSnapshot();
+				}
 				if (current.pending !== null || current.status !== "ready") return false;
 				this.store.update((state) => {
 					state.pending = operation.action;
@@ -422,15 +493,20 @@ window.__ModuleLoader__.load({
 					this.sessions.open(sessionId);
 					return Promise.resolve();
 				}
+				this.sessions.refresh();
 				return new Promise((resolve) => {
 					let settled = false;
 					let dispose = () => {};
+					let timer;
 					const finish = (open) => {
 						if (settled) return;
 						settled = true;
+						if (timer !== void 0) clearTimeout(timer);
 						dispose();
 						this.navigationWaits.delete(cancel);
-						if (open) this.sessions.open(sessionId);
+						if (open) try {
+							this.sessions.open(sessionId);
+						} catch {}
 						resolve();
 					};
 					const cancel = () => {
@@ -441,315 +517,21 @@ window.__ModuleLoader__.load({
 						if (this.sessions.list.getSnapshot().byId[sessionId] === void 0) return;
 						finish(true);
 					});
-					if (this.sessions.list.getSnapshot().byId[sessionId] !== void 0) finish(true);
-				});
-			}
-		};
-		//#endregion
-		//#region \0dsh-css:/run/media/user1/78E6859DE6855BEE/code/js/dsh-message-edit/src/client/InlineMessageEdit.module.css.mjs
-		const css$2 = ".Ps3QDa_overlay{z-index:1000;background:var(--dsw-alias-bg-mask,#00000073);overscroll-behavior:contain;justify-content:center;align-items:center;padding:16px;display:flex;position:fixed;inset:0}.Ps3QDa_panel{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-module-platform);-webkit-overflow-scrolling:touch;border-radius:10px;width:min(560px,100%);max-height:calc(100vh - 32px);padding:14px 16px;overflow:auto}.Ps3QDa_title{color:var(--dsw-alias-label-primary);padding:4px 0 10px;font-size:13px}.Ps3QDa_input{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-module-platform);width:100%;min-width:0;min-height:160px;color:var(--dsw-alias-label-primary);font:inherit;resize:vertical;border-radius:8px;padding:10px}.Ps3QDa_footer{justify-content:flex-end;gap:8px;padding:10px 0 0;display:flex}.Ps3QDa_footer button{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-module-hover);min-height:34px;color:var(--dsw-alias-label-primary);cursor:pointer;border-radius:6px;padding:6px 14px}.Ps3QDa_footer button:disabled{cursor:default;opacity:.45}.Ps3QDa_iconButton{width:20px;height:20px;color:var(--dsw-alias-label-secondary);cursor:pointer;touch-action:manipulation;background:0 0;border:none;border-radius:4px;justify-content:center;align-items:center;padding:2px;display:inline-flex}.Ps3QDa_iconButton:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-module-hover)}.Ps3QDa_picker{flex-direction:column;gap:6px;padding:4px 0 12px;display:flex}.Ps3QDa_pickerItem{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-module-hover);color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;border-radius:6px;padding:8px 10px;font-size:12px}.Ps3QDa_pickerItem:hover{background:var(--dsw-alias-bg-module-platform)}.Ps3QDa_pickerItemActive{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-module-hover);color:var(--dsw-alias-label-primary);cursor:pointer;border-radius:6px;align-self:flex-end;padding:6px 14px}@media (width<=680px){.Ps3QDa_overlay{padding:max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));align-items:center}.Ps3QDa_panel{border-radius:12px;width:100%;max-height:calc(100dvh - 24px);padding:12px}.Ps3QDa_title{padding:4px 0 10px;font-size:14px;line-height:20px}.Ps3QDa_iconButton{width:32px;height:32px;padding:8px}.Ps3QDa_input{min-height:min(45vh,280px);font-size:16px;line-height:22px}.Ps3QDa_footer{gap:8px}.Ps3QDa_footer button{flex:1;min-height:44px;font-size:14px}.Ps3QDa_picker{gap:8px}.Ps3QDa_pickerItem,.Ps3QDa_pickerItemActive{min-height:44px;font-size:14px}}";
-		const tagId$2 = "dsh-message-edit/InlineMessageEdit.module.css";
-		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$2) + "]") === null) {
-			const tag = document.createElement("style");
-			tag.dataset.plugin = "dsh-message-edit";
-			tag.dataset.pluginCss = tagId$2;
-			tag.textContent = css$2;
-			document.head.appendChild(tag);
-		}
-		var InlineMessageEdit_module_css_default = {
-			"panel": "Ps3QDa_panel",
-			"pickerItemActive": "Ps3QDa_pickerItemActive",
-			"input": "Ps3QDa_input",
-			"iconButton": "Ps3QDa_iconButton",
-			"footer": "Ps3QDa_footer",
-			"picker": "Ps3QDa_picker",
-			"title": "Ps3QDa_title",
-			"overlay": "Ps3QDa_overlay",
-			"pickerItem": "Ps3QDa_pickerItem"
-		};
-		//#endregion
-		//#region src/client/InlineMessageEdit.tsx
-		/**
-		* Message-row edit affordance: injects retry + edit icon buttons into each
-		* settled message's icon-actions row (the official MessageIconActions has no
-		* plugin slot, so injection rides a MutationObserver over action rows).
-		* Icons are the official outline-16 SVGs inlined to avoid bundling the
-		* primitives package.
-		*/
-		const BLOCK_TITLE = {
-			user: "编辑用户消息",
-			"assistant.reasoning": "编辑助手思考",
-			"assistant.response": "编辑助手回复",
-			system: "编辑 System Prompt",
-			"tool.call": "编辑工具调用",
-			"tool.result": "编辑工具返回",
-			"context.inject": "编辑注入上下文"
-		};
-		const STYLE = {
-			overlay: InlineMessageEdit_module_css_default["overlay"] ?? "",
-			panel: InlineMessageEdit_module_css_default["panel"] ?? "",
-			title: InlineMessageEdit_module_css_default["title"] ?? "",
-			input: InlineMessageEdit_module_css_default["input"] ?? "",
-			footer: InlineMessageEdit_module_css_default["footer"] ?? "",
-			iconButton: InlineMessageEdit_module_css_default["iconButton"] ?? "",
-			picker: InlineMessageEdit_module_css_default["picker"] ?? "",
-			pickerItem: InlineMessageEdit_module_css_default["pickerItem"] ?? "",
-			pickerItemActive: InlineMessageEdit_module_css_default["pickerItemActive"] ?? ""
-		};
-		/** Official ic_ds_refresh_outline_16 path (dsh-client-ui-primitives). */
-		const REFRESH_PATH = "M7.92136 0.349152C10.3744 0.349234 12.5564 1.5052 13.9557 3.29894L15.1281 2.12759C15.3303 1.92546 15.6767 2.06943 15.6767 2.35538V5.53923C15.6766 5.71626 15.5329 5.85976 15.3559 5.86002H12.171C11.8854 5.8597 11.7426 5.51465 11.9443 5.31249L12.9641 4.29056C11.8237 2.74305 9.98908 1.74106 7.92136 1.74097C4.46436 1.74097 1.66233 4.543 1.66233 8C1.66233 11.457 4.46436 14.259 7.92136 14.259C11.3782 14.2589 14.1804 11.4569 14.1804 8H15.5722C15.5722 12.2251 12.1465 15.6507 7.92136 15.6508C3.69614 15.6508 0.270508 12.2252 0.270508 8C0.270508 3.77478 3.69614 0.349152 7.92136 0.349152Z";
-		/** Official ic_ds_edit_outline_16 path (dsh-client-ui-primitives). */
-		const EDIT_PATH = "M9.94076 1.34942C10.7047 0.90231 11.6503 0.902415 12.4143 1.34942C12.7061 1.52015 12.9688 1.79118 13.3104 2.13284C13.6521 2.47448 13.9231 2.73721 14.0939 3.02894C14.5408 3.79294 14.5409 4.73856 14.0939 5.50251C13.9231 5.79415 13.652 6.05704 13.3104 6.39861L6.65932 13.0497C6.28068 13.4284 6.00695 13.7108 5.66543 13.9097C5.32391 14.1085 4.94315 14.2074 4.42705 14.3498L3.24394 14.6761C2.77527 14.8054 2.34538 14.9262 2.00131 14.9684C1.65196 15.0112 1.17964 15.0013 0.810764 14.6325C0.441921 14.2637 0.432107 13.7913 0.47486 13.442C0.517035 13.0979 0.6379 12.668 0.767181 12.1993L1.09352 11.0162C1.23588 10.5001 1.33481 10.1193 1.5336 9.77784C1.7325 9.43632 2.0149 9.1626 2.39355 8.78395L9.04466 2.13284C9.38625 1.79126 9.64911 1.52016 9.94076 1.34942ZM15.5427 14.8398H7.55223L8.96707 13.425H15.5427V14.8398ZM3.39382 9.78422C2.965 10.213 2.84244 10.3436 2.75709 10.49C2.67183 10.6366 2.61862 10.8079 2.45733 11.3925L2.13099 12.5756C2.00183 13.0439 1.92194 13.3419 1.88863 13.5536C2.10041 13.5204 2.39872 13.4416 2.86764 13.3123L4.05075 12.9859C4.63544 12.8246 4.80669 12.7715 4.95323 12.6862C5.09968 12.6008 5.23022 12.4783 5.65905 12.0494L10.721 6.98644L8.45577 4.72121L3.39382 9.78422ZM11.7 2.57079C11.3774 2.38198 10.9777 2.38198 10.6551 2.57079C10.5602 2.62647 10.4487 2.72931 10.0449 3.13311L9.45604 3.72094L11.7213 5.98617L12.3102 5.39833C12.7139 4.99457 12.8168 4.88307 12.8725 4.78818C13.0613 4.46561 13.0612 4.06585 12.8725 3.74326C12.8169 3.64827 12.7146 3.53752 12.3102 3.13311C11.9057 2.72863 11.795 2.6264 11.7 2.57079Z";
-		function svgIcon(path) {
-			const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-			svg.setAttribute("width", "16");
-			svg.setAttribute("height", "16");
-			svg.setAttribute("viewBox", "0 0 16 16");
-			svg.setAttribute("fill", "none");
-			const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
-			p.setAttribute("d", path);
-			p.setAttribute("fill", "currentColor");
-			svg.appendChild(p);
-			return svg;
-		}
-		function blockTitle(kind) {
-			return BLOCK_TITLE[kind] ?? "编辑消息";
-		}
-		/** Mount one editor DOM effect and return its exact inverse. */
-		function mountEditor(block, edit, close) {
-			const overlay = document.createElement("div");
-			overlay.className = STYLE.overlay;
-			const panel = document.createElement("div");
-			panel.className = STYLE.panel;
-			const title = document.createElement("div");
-			title.className = STYLE.title;
-			title.textContent = blockTitle(block.kind);
-			const input = document.createElement("textarea");
-			input.className = STYLE.input;
-			input.value = block.text;
-			const footer = document.createElement("div");
-			footer.className = STYLE.footer;
-			const save = document.createElement("button");
-			save.textContent = "保存";
-			const cancel = document.createElement("button");
-			cancel.textContent = "取消";
-			footer.append(save, cancel);
-			panel.append(title, input, footer);
-			overlay.appendChild(panel);
-			document.body.appendChild(overlay);
-			input.focus();
-			input.setSelectionRange(input.value.length, input.value.length);
-			let mounted = true;
-			let saving = false;
-			const saveEdit = () => {
-				if (saving) return;
-				saving = true;
-				save.disabled = true;
-				edit(block, input.value, "truncate").then((applied) => {
-					if (!mounted) return;
-					if (applied) {
-						close();
+					if (this.sessions.list.getSnapshot().byId[sessionId] !== void 0) {
+						finish(true);
 						return;
 					}
-					saving = false;
-					save.disabled = false;
-				});
-			};
-			const cancelEdit = () => {
-				close();
-			};
-			const dismiss = (event) => {
-				if (event.target === overlay) close();
-			};
-			save.addEventListener("click", saveEdit);
-			cancel.addEventListener("click", cancelEdit);
-			overlay.addEventListener("click", dismiss);
-			return () => {
-				mounted = false;
-				save.removeEventListener("click", saveEdit);
-				cancel.removeEventListener("click", cancelEdit);
-				overlay.removeEventListener("click", dismiss);
-				overlay.remove();
-			};
-		}
-		/** Mount one block-picker DOM effect and return its exact inverse. */
-		function mountPicker(blocks, select, close) {
-			const overlay = document.createElement("div");
-			overlay.className = STYLE.overlay;
-			const panel = document.createElement("div");
-			panel.className = STYLE.panel;
-			const title = document.createElement("div");
-			title.className = STYLE.title;
-			title.textContent = blocks.some((block) => block.kind === "user") ? "编辑消息" : "编辑助手消息";
-			const picker = document.createElement("div");
-			picker.className = STYLE.picker;
-			const itemListeners = [];
-			for (const block of blocks) {
-				const item = document.createElement("button");
-				item.className = STYLE.pickerItem;
-				item.textContent = `${blockTitle(block.kind)}：${block.text.slice(0, 24)}${block.text.length > 24 ? "…" : ""}`;
-				const listener = () => {
-					select(block);
-				};
-				item.addEventListener("click", listener);
-				itemListeners.push({
-					item,
-					listener
-				});
-				picker.appendChild(item);
-			}
-			const cancel = document.createElement("button");
-			cancel.textContent = "取消";
-			cancel.className = STYLE.pickerItemActive;
-			const cancelPicker = () => {
-				close();
-			};
-			cancel.addEventListener("click", cancelPicker);
-			panel.append(title, picker, cancel);
-			overlay.appendChild(panel);
-			document.body.appendChild(overlay);
-			return () => {
-				for (const { item, listener } of itemListeners) item.removeEventListener("click", listener);
-				cancel.removeEventListener("click", cancelPicker);
-				overlay.remove();
-			};
-		}
-		/** Compose every overlay with a single idempotent active inverse. */
-		function createOverlayHost(edit) {
-			let active;
-			const mount = (effect) => {
-				active?.();
-				let cleanup = () => {};
-				let mounted = true;
-				const close = () => {
-					if (!mounted) return;
-					mounted = false;
-					cleanup();
-					if (active === close) active = void 0;
-				};
-				active = close;
-				try {
-					cleanup = effect(close);
-				} catch (error) {
-					active = void 0;
-					mounted = false;
-					throw error;
-				}
-			};
-			const editBlock = (block) => {
-				mount((close) => mountEditor(block, edit, close));
-			};
-			const chooseBlock = (blocks) => {
-				mount((close) => mountPicker(blocks, (block) => {
-					close();
-					editBlock(block);
-				}, close));
-			};
-			return {
-				editBlock,
-				chooseBlock,
-				dispose: () => {
-					active?.();
-				}
-			};
-		}
-		/** Inject retry + edit icon buttons into each message action row. */
-		function InlineMessageEdit({ messages, edit, retry }) {
-			(0, react.useEffect)(() => {
-				const cleanups = [];
-				const overlays = createOverlayHost(edit);
-				let observer;
-				let alive = true;
-				let frame;
-				let scheduled = false;
-				const sync = () => {
-					const actionRows = Array.from(document.querySelectorAll("[class*=\"actions\"]"));
-					const claimedEvents = /* @__PURE__ */ new Set();
-					for (const row of actionRows) {
-						const marker = row;
-						if (marker.__messageEditInjected === true) {
-							if (marker.__messageEditEventSeq !== void 0) claimedEvents.add(marker.__messageEditEventSeq);
-							continue;
-						}
-						const text = (row.parentElement?.parentElement?.textContent ?? "").trim();
-						if (text.length === 0) continue;
-						const eventSeq = [...new Set(messages.filter((message) => message.text.length > 0 && text.includes(message.text.slice(0, 24))).map((message) => message.eventSeq))].find((candidate) => !claimedEvents.has(candidate));
-						if (eventSeq === void 0) continue;
-						const blocks = messages.filter((message) => message.eventSeq === eventSeq);
-						if (blocks.length === 0) continue;
-						const previousMarker = marker.__messageEditInjected;
-						const previousEventSeq = marker.__messageEditEventSeq;
-						marker.__messageEditInjected = true;
-						marker.__messageEditEventSeq = eventSeq;
-						claimedEvents.add(eventSeq);
-						const editButton = document.createElement("button");
-						editButton.className = STYLE.iconButton;
-						editButton.setAttribute("aria-label", "编辑消息");
-						editButton.title = "编辑消息";
-						editButton.appendChild(svgIcon(EDIT_PATH));
-						const editMessage = () => {
-							if (blocks.length === 1 && blocks[0] !== void 0) overlays.editBlock(blocks[0]);
-							else overlays.chooseBlock(blocks);
-						};
-						editButton.addEventListener("click", editMessage);
-						const retryButton = document.createElement("button");
-						retryButton.className = STYLE.iconButton;
-						retryButton.setAttribute("aria-label", "重试此回合");
-						retryButton.title = "重试此回合";
-						retryButton.appendChild(svgIcon(REFRESH_PATH));
-						const turn = blocks[0]?.turn;
-						const retryTurn = () => {
-							if (turn !== void 0) retry(turn, "truncate");
-						};
-						retryButton.addEventListener("click", retryTurn);
-						const lastOfficial = Array.from(row.querySelectorAll("button")).filter((button) => button !== editButton && button !== retryButton).at(-1);
-						if (lastOfficial !== void 0) {
-							lastOfficial.insertAdjacentElement("afterend", retryButton);
-							lastOfficial.insertAdjacentElement("afterend", editButton);
-						} else {
-							row.appendChild(editButton);
-							row.appendChild(retryButton);
-						}
-						cleanups.push(() => {
-							editButton.removeEventListener("click", editMessage);
-							retryButton.removeEventListener("click", retryTurn);
-							editButton.remove();
-							retryButton.remove();
-							if (previousMarker === void 0) delete marker.__messageEditInjected;
-							else marker.__messageEditInjected = previousMarker;
-							if (previousEventSeq === void 0) delete marker.__messageEditEventSeq;
-							else marker.__messageEditEventSeq = previousEventSeq;
+					timer = setTimeout(() => {
+						if (this.sessions.list.getSnapshot().byId[sessionId] !== void 0) finish(true);
+						else this.sessions.refresh().then(() => {
+							finish(this.sessions.list.getSnapshot().byId[sessionId] !== void 0);
+						}).catch(() => {
+							finish(false);
 						});
-					}
-				};
-				sync();
-				observer = new MutationObserver(() => {
-					if (!alive || scheduled) return;
-					scheduled = true;
-					frame = requestAnimationFrame(() => {
-						frame = void 0;
-						scheduled = false;
-						if (alive) sync();
-					});
+					}, 500);
 				});
-				observer.observe(document.body, {
-					childList: true,
-					subtree: true
-				});
-				return () => {
-					alive = false;
-					if (frame !== void 0) cancelAnimationFrame(frame);
-					observer?.disconnect();
-					overlays.dispose();
-					for (const cleanup of cleanups.reverse()) cleanup();
-				};
-			}, [
-				messages,
-				edit,
-				retry
-			]);
-			return null;
-		}
+			}
+		};
 		//#endregion
 		//#region \0dsh-css:/run/media/user1/78E6859DE6855BEE/code/js/dsh-message-edit/src/client/MessageEditHeader.module.css.mjs
 		const css$1 = ".ovpcJa_root{flex-wrap:wrap;align-items:center;gap:4px;min-width:0;max-width:100%;display:inline-flex}.ovpcJa_iconButton,.ovpcJa_rerollButton{box-sizing:border-box;color:var(--dsw-alias-label-secondary);font:inherit;cursor:pointer;touch-action:manipulation;background:0 0;border:0}.ovpcJa_iconButton{border-radius:50%;justify-content:center;align-items:center;width:28px;height:28px;font-size:16px;line-height:20px;display:inline-flex}.ovpcJa_rerollButton{border:1px solid var(--dsw-alias-border-l2);border-radius:14px;height:28px;padding:0 10px;font-size:12px;line-height:18px}.ovpcJa_iconButton:hover:not(:disabled),.ovpcJa_rerollButton:hover:not(:disabled){color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}.ovpcJa_iconButton:focus-visible,.ovpcJa_rerollButton:focus-visible{box-shadow:0 0 0 2px var(--dsw-alias-border-l3);outline:none}.ovpcJa_iconButton:disabled,.ovpcJa_rerollButton:disabled{cursor:default;opacity:.4}.ovpcJa_counter{min-width:108px;color:var(--dsw-alias-label-tertiary);text-align:center;font-size:11px;line-height:18px}@media (width<=760px){.ovpcJa_counter{display:none}.ovpcJa_iconButton{width:36px;height:36px;font-size:18px}.ovpcJa_rerollButton{white-space:nowrap;border-radius:18px;height:36px;min-height:36px;padding:0 12px}}";
@@ -762,15 +544,15 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var MessageEditHeader_module_css_default = {
-			"iconButton": "ovpcJa_iconButton",
 			"root": "ovpcJa_root",
-			"rerollButton": "ovpcJa_rerollButton",
-			"counter": "ovpcJa_counter"
+			"iconButton": "ovpcJa_iconButton",
+			"counter": "ovpcJa_counter",
+			"rerollButton": "ovpcJa_rerollButton"
 		};
 		//#endregion
 		//#region src/client/MessageEditHeader.tsx
 		/** Header contribution shared with the Timeline controller. */
-		function MessageEditHeader({ useMessageEdit, acquire, load, openVersion, reroll, edit, retry }) {
+		function MessageEditHeader({ useMessageEdit, acquire, load, openVersion, reroll }) {
 			const state = useMessageEdit((value) => value);
 			(0, react.useEffect)(() => {
 				const release = acquire();
@@ -783,11 +565,7 @@ window.__ModuleLoader__.load({
 			const redoSessionId = timeline?.redoSessionIds.at(-1);
 			const effectDepth = timeline?.undoStack.length ?? 0;
 			const busy = state.pending !== null || state.status !== "ready";
-			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(InlineMessageEdit, {
-				messages: state.status === "ready" && state.pending === null ? timeline?.messages ?? [] : [],
-				edit,
-				retry
-			}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 				className: MessageEditHeader_module_css_default["root"],
 				children: [
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
@@ -826,7 +604,7 @@ window.__ModuleLoader__.load({
 						children: state.pending === "reroll" ? "正在重生成…" : "重生成"
 					})
 				]
-			})] });
+			});
 		}
 		//#endregion
 		//#region \0dsh-css:/run/media/user1/78E6859DE6855BEE/code/js/dsh-message-edit/src/client/MessageEditTimelineView.module.css.mjs
@@ -840,74 +618,74 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var MessageEditTimelineView_module_css_default = {
-			"actionRow": "hbVeaa_actionRow",
-			"textarea": "hbVeaa_textarea",
-			"pathBadge": "hbVeaa_pathBadge",
-			"secondaryButton": "hbVeaa_secondaryButton",
-			"emptyState": "hbVeaa_emptyState",
-			"effectControls": "hbVeaa_effectControls",
-			"root": "hbVeaa_root",
-			"versionList": "hbVeaa_versionList",
-			"kindBadge": "hbVeaa_kindBadge",
-			"status": "hbVeaa_status",
-			"turnList": "hbVeaa_turnList",
-			"editedBadge": "hbVeaa_editedBadge",
-			"turnsPanel": "hbVeaa_turnsPanel",
-			"columns": "hbVeaa_columns",
-			"editorActions": "hbVeaa_editorActions",
-			"editorHint": "hbVeaa_editorHint",
-			"collapseTurnButton": "hbVeaa_collapseTurnButton",
-			"sectionHeading": "hbVeaa_sectionHeading",
-			"effectDepth": "hbVeaa_effectDepth",
-			"dragHandle": "hbVeaa_dragHandle",
-			"editor": "hbVeaa_editor",
-			"turnHeaderLeft": "hbVeaa_turnHeaderLeft",
-			"turnTitle": "hbVeaa_turnTitle",
-			"versionLine": "hbVeaa_versionLine",
-			"messageText": "hbVeaa_messageText",
-			"versionDot": "hbVeaa_versionDot",
-			"messageTextCollapsed": "hbVeaa_messageTextCollapsed",
-			"workspaceSelect": "hbVeaa_workspaceSelect",
-			"changeChip": "hbVeaa_changeChip",
-			"title": "hbVeaa_title",
-			"newBadge": "hbVeaa_newBadge",
-			"notice": "hbVeaa_notice",
-			"versionTitle": "hbVeaa_versionTitle",
-			"pageHeader": "hbVeaa_pageHeader",
-			"versionsPanel": "hbVeaa_versionsPanel",
-			"versionMeta": "hbVeaa_versionMeta",
-			"versionButton": "hbVeaa_versionButton",
-			"composerFooter": "hbVeaa_composerFooter",
-			"primaryButton": "hbVeaa_primaryButton",
-			"currentBadge": "hbVeaa_currentBadge",
-			"intro": "hbVeaa_intro",
-			"changeSummary": "hbVeaa_changeSummary",
 			"workspaceField": "hbVeaa_workspaceField",
-			"subtitle": "hbVeaa_subtitle",
-			"messageList": "hbVeaa_messageList",
-			"versionItem": "hbVeaa_versionItem",
-			"versionMain": "hbVeaa_versionMain",
-			"batchActions": "hbVeaa_batchActions",
-			"cascadeField": "hbVeaa_cascadeField",
-			"effectButtons": "hbVeaa_effectButtons",
-			"turnHeader": "hbVeaa_turnHeader",
+			"versionTitle": "hbVeaa_versionTitle",
+			"versionDot": "hbVeaa_versionDot",
 			"messageTextWrapper": "hbVeaa_messageTextWrapper",
-			"headerActions": "hbVeaa_headerActions",
-			"messageTime": "hbVeaa_messageTime",
-			"checkbox": "hbVeaa_checkbox",
-			"count": "hbVeaa_count",
-			"turnSection": "hbVeaa_turnSection",
-			"error": "hbVeaa_error",
-			"empty": "hbVeaa_empty",
-			"textButton": "hbVeaa_textButton",
-			"versionDiff": "hbVeaa_versionDiff",
-			"turnPreview": "hbVeaa_turnPreview",
-			"select": "hbVeaa_select",
-			"expandButton": "hbVeaa_expandButton",
-			"messageSpacer": "hbVeaa_messageSpacer",
+			"pathBadge": "hbVeaa_pathBadge",
+			"editor": "hbVeaa_editor",
+			"editorHint": "hbVeaa_editorHint",
 			"messageHeader": "hbVeaa_messageHeader",
+			"versionMeta": "hbVeaa_versionMeta",
+			"editedBadge": "hbVeaa_editedBadge",
+			"error": "hbVeaa_error",
+			"effectDepth": "hbVeaa_effectDepth",
+			"headerActions": "hbVeaa_headerActions",
+			"turnPreview": "hbVeaa_turnPreview",
+			"versionDiff": "hbVeaa_versionDiff",
+			"kindBadge": "hbVeaa_kindBadge",
+			"changeChip": "hbVeaa_changeChip",
+			"messageText": "hbVeaa_messageText",
+			"intro": "hbVeaa_intro",
+			"textarea": "hbVeaa_textarea",
+			"changeSummary": "hbVeaa_changeSummary",
+			"versionLine": "hbVeaa_versionLine",
+			"turnList": "hbVeaa_turnList",
+			"versionButton": "hbVeaa_versionButton",
+			"subtitle": "hbVeaa_subtitle",
+			"emptyState": "hbVeaa_emptyState",
+			"versionItem": "hbVeaa_versionItem",
+			"turnHeader": "hbVeaa_turnHeader",
+			"versionMain": "hbVeaa_versionMain",
+			"workspaceSelect": "hbVeaa_workspaceSelect",
+			"secondaryButton": "hbVeaa_secondaryButton",
+			"currentBadge": "hbVeaa_currentBadge",
+			"notice": "hbVeaa_notice",
+			"select": "hbVeaa_select",
+			"actionRow": "hbVeaa_actionRow",
+			"textButton": "hbVeaa_textButton",
+			"checkbox": "hbVeaa_checkbox",
+			"messageSpacer": "hbVeaa_messageSpacer",
+			"turnActions": "hbVeaa_turnActions",
 			"messageCard": "hbVeaa_messageCard",
-			"turnActions": "hbVeaa_turnActions"
+			"turnSection": "hbVeaa_turnSection",
+			"effectControls": "hbVeaa_effectControls",
+			"versionList": "hbVeaa_versionList",
+			"turnTitle": "hbVeaa_turnTitle",
+			"editorActions": "hbVeaa_editorActions",
+			"expandButton": "hbVeaa_expandButton",
+			"count": "hbVeaa_count",
+			"messageList": "hbVeaa_messageList",
+			"messageTextCollapsed": "hbVeaa_messageTextCollapsed",
+			"root": "hbVeaa_root",
+			"title": "hbVeaa_title",
+			"columns": "hbVeaa_columns",
+			"versionsPanel": "hbVeaa_versionsPanel",
+			"newBadge": "hbVeaa_newBadge",
+			"collapseTurnButton": "hbVeaa_collapseTurnButton",
+			"effectButtons": "hbVeaa_effectButtons",
+			"dragHandle": "hbVeaa_dragHandle",
+			"primaryButton": "hbVeaa_primaryButton",
+			"turnHeaderLeft": "hbVeaa_turnHeaderLeft",
+			"batchActions": "hbVeaa_batchActions",
+			"empty": "hbVeaa_empty",
+			"cascadeField": "hbVeaa_cascadeField",
+			"sectionHeading": "hbVeaa_sectionHeading",
+			"turnsPanel": "hbVeaa_turnsPanel",
+			"pageHeader": "hbVeaa_pageHeader",
+			"messageTime": "hbVeaa_messageTime",
+			"composerFooter": "hbVeaa_composerFooter",
+			"status": "hbVeaa_status"
 		};
 		//#endregion
 		//#region src/client/MessageEditTimelineView.tsx
@@ -1987,6 +1765,7 @@ window.__ModuleLoader__.load({
 		];
 		/** Register both UI contributions over one per-session controller identity. */
 		function apply(ctx) {
+			if (typeof document !== "undefined") for (const el of Array.from(document.querySelectorAll("[data-message-edit-injected]"))) el.remove();
 			const controllers = /* @__PURE__ */ new Map();
 			const controllerFor = (sessionId) => {
 				let controller = controllers.get(sessionId);

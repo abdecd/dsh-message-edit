@@ -5,7 +5,7 @@
  * Icons are the official outline-16 SVGs inlined to avoid bundling the
  * primitives package.
  */
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import type { EditableMessageBlock } from '../shared.ts'
 import type { MessageEditFace } from './controller.ts'
 import styles from './InlineMessageEdit.module.css'
@@ -207,34 +207,72 @@ export function InlineMessageEdit({
   edit: MessageEditFace['edit']
   retry: MessageEditFace['retry']
 }): null {
+  const messagesRef = useRef(messages)
+  messagesRef.current = messages
+  const editRef = useRef(edit)
+  editRef.current = edit
+  const retryRef = useRef(retry)
+  retryRef.current = retry
+  const syncRef = useRef<(() => void) | null>(null)
+
   useEffect(() => {
     const cleanups: Array<() => void> = []
-    const overlays = createOverlayHost(edit)
+    const overlays = createOverlayHost((block, text, cascade) => editRef.current(block, text, cascade))
     let observer: MutationObserver | undefined
     let alive = true
     let frame: number | undefined
     let scheduled = false
 
     const sync = (): void => {
+      const currentMessages = messagesRef.current
+      if (currentMessages.length === 0) return
       const actionRows = Array.from(document.querySelectorAll<HTMLElement>('[class*="actions"]'))
       const claimedEvents = new Set<number>()
       for (const row of actionRows) {
         const marker = row as HTMLElement & {
           __messageEditInjected?: boolean
           __messageEditEventSeq?: number
+          __messageEditCleanup?: () => void
         }
         if (marker.__messageEditInjected === true) {
-          if (marker.__messageEditEventSeq !== undefined) claimedEvents.add(marker.__messageEditEventSeq)
-          continue
+          const stillValid = marker.__messageEditEventSeq !== undefined &&
+            currentMessages.some(message => message.eventSeq === marker.__messageEditEventSeq)
+          if (stillValid && row.querySelector('[data-message-edit-injected]')) {
+            if (marker.__messageEditEventSeq !== undefined) claimedEvents.add(marker.__messageEditEventSeq)
+            continue
+          }
+          marker.__messageEditCleanup?.()
+          marker.__messageEditInjected = false
         }
-        const text = (row.parentElement?.parentElement?.textContent ?? '').trim()
-        if (text.length === 0) continue
-        const matchingEvents = [...new Set(messages
-          .filter(message => message.text.length > 0 && text.includes(message.text.slice(0, 24)))
-          .map(message => message.eventSeq))]
-        const eventSeq = matchingEvents.find(candidate => !claimedEvents.has(candidate))
+        // Check if there is an explicit data-turn-tail on an ancestor
+        const turnTailEl = row.closest<HTMLElement>('[data-turn-tail]')
+        const turnTailAttr = turnTailEl?.getAttribute('data-turn-tail')
+        const explicitTurn = turnTailAttr ? Number.parseInt(turnTailAttr, 10) : undefined
+
+        let eventSeq: number | undefined
+        if (explicitTurn !== undefined && Number.isFinite(explicitTurn)) {
+          const turnAssistantMessages = currentMessages.filter(m => m.turn === explicitTurn && m.kind.startsWith('assistant'))
+          if (turnAssistantMessages.length > 0) {
+            eventSeq = turnAssistantMessages[0]?.eventSeq
+          } else {
+            const turnMessages = currentMessages.filter(m => m.turn === explicitTurn)
+            if (turnMessages.length > 0) {
+              eventSeq = turnMessages[turnMessages.length - 1]?.eventSeq
+            }
+          }
+        }
+
+        if (eventSeq === undefined) {
+          const text = (row.parentElement?.parentElement?.textContent ?? '').trim()
+          if (text.length === 0) continue
+          const matchingEvents = [...new Set(currentMessages
+            .filter(message => message.text.length > 0 && text.includes(message.text.slice(0, 24)))
+            .map(message => message.eventSeq))]
+          eventSeq = matchingEvents.find(candidate => !claimedEvents.has(candidate))
+        }
+
         if (eventSeq === undefined) continue
-        const blocks = messages.filter(message => message.eventSeq === eventSeq)
+        const blocks = currentMessages.filter(message => message.eventSeq === eventSeq)
         if (blocks.length === 0) continue
         const previousMarker = marker.__messageEditInjected
         const previousEventSeq = marker.__messageEditEventSeq
@@ -243,31 +281,68 @@ export function InlineMessageEdit({
         claimedEvents.add(eventSeq)
 
         const editButton = document.createElement('button')
+        editButton.type = 'button'
         editButton.className = STYLE.iconButton
         editButton.setAttribute('aria-label', '编辑消息')
+        editButton.setAttribute('data-message-edit-injected', 'true')
         editButton.title = '编辑消息'
         editButton.appendChild(svgIcon(EDIT_PATH))
-        const editMessage = (): void => {
-          if (blocks.length === 1 && blocks[0] !== undefined) overlays.editBlock(blocks[0])
-          else overlays.chooseBlock(blocks)
+        const editMessage = (e: MouseEvent): void => {
+          e.preventDefault()
+          e.stopPropagation()
+          const liveBlocks = messagesRef.current.filter(m => m.eventSeq === eventSeq)
+          const targetBlocks = liveBlocks.length > 0 ? liveBlocks : blocks
+          if (targetBlocks.length === 1 && targetBlocks[0] !== undefined) overlays.editBlock(targetBlocks[0])
+          else if (targetBlocks.length > 1) overlays.chooseBlock(targetBlocks)
         }
         editButton.addEventListener('click', editMessage)
 
         const retryButton = document.createElement('button')
+        retryButton.type = 'button'
         retryButton.className = STYLE.iconButton
         retryButton.setAttribute('aria-label', '重试此回合')
+        retryButton.setAttribute('data-message-edit-injected', 'true')
         retryButton.title = '重试此回合'
         retryButton.appendChild(svgIcon(REFRESH_PATH))
-        const turn = blocks[0]?.turn
-        const retryTurn = (): void => {
-          if (turn !== undefined) void retry(turn, 'truncate')
+        const retryTurn = (e: MouseEvent): void => {
+          e.preventDefault()
+          e.stopPropagation()
+          if (retryButton.disabled) return
+
+          const liveBlocks = messagesRef.current.filter(m => m.eventSeq === eventSeq)
+          const targetBlocks = liveBlocks.length > 0 ? liveBlocks : blocks
+          const turn = explicitTurn !== undefined && Number.isFinite(explicitTurn)
+            ? explicitTurn
+            : targetBlocks[0]?.turn
+
+          if (turn === undefined) {
+            console.warn('[dsh-message-edit] 无法解析该消息对应的回合')
+            return
+          }
+
+          retryButton.disabled = true
+          retryButton.style.opacity = '0.5'
+          retryButton.title = '正在重试…'
+
+          void retryRef.current(turn, 'truncate').then((success) => {
+            if (!success) {
+              retryButton.disabled = false
+              retryButton.style.opacity = ''
+              retryButton.title = '重试此回合'
+            }
+          }).catch((err) => {
+            console.error('[dsh-message-edit] 重试失败:', err)
+            retryButton.disabled = false
+            retryButton.style.opacity = ''
+            retryButton.title = '重试此回合'
+          })
         }
         retryButton.addEventListener('click', retryTurn)
 
         // Insert after the last official action button so injected icons
         // stay contiguous with copy/branch and the clock keeps its side.
         const officialButtons = Array.from(row.querySelectorAll('button'))
-          .filter(button => button !== editButton && button !== retryButton)
+          .filter(button => !button.hasAttribute('data-message-edit-injected'))
         const lastOfficial = officialButtons.at(-1)
         if (lastOfficial !== undefined) {
           lastOfficial.insertAdjacentElement('afterend', retryButton)
@@ -276,7 +351,7 @@ export function InlineMessageEdit({
           row.appendChild(editButton)
           row.appendChild(retryButton)
         }
-        cleanups.push(() => {
+        const rowCleanup = (): void => {
           editButton.removeEventListener('click', editMessage)
           retryButton.removeEventListener('click', retryTurn)
           editButton.remove()
@@ -285,10 +360,14 @@ export function InlineMessageEdit({
           else marker.__messageEditInjected = previousMarker
           if (previousEventSeq === undefined) delete marker.__messageEditEventSeq
           else marker.__messageEditEventSeq = previousEventSeq
-        })
+          delete marker.__messageEditCleanup
+        }
+        marker.__messageEditCleanup = rowCleanup
+        cleanups.push(rowCleanup)
       }
     }
 
+    syncRef.current = sync
     sync()
     observer = new MutationObserver(() => {
       if (!alive || scheduled) return
@@ -303,12 +382,17 @@ export function InlineMessageEdit({
 
     return () => {
       alive = false
+      syncRef.current = null
       if (frame !== undefined) cancelAnimationFrame(frame)
       observer?.disconnect()
       overlays.dispose()
       for (const cleanup of cleanups.reverse()) cleanup()
     }
-  }, [messages, edit, retry])
+  }, [])
+
+  useEffect(() => {
+    syncRef.current?.()
+  }, [messages])
 
   return null
 }

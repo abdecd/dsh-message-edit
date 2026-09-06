@@ -33,6 +33,7 @@ async function clientFixture(next) {
   assert.equal(loaded.id, 'dsh-message-edit')
   const plugin = loaded.factory(id => { externals.push(id); return require(id) })
   const eventSource = source({ revision: 0 })
+  const sessionSource = source({ running: false })
   const list = source({ byId: { source: {}, child: { parentId: 'source' } } })
   const projection = source({ next })
   const opened = []
@@ -41,7 +42,14 @@ async function clientFixture(next) {
   plugin.apply({
     sessions: {
       list,
-      binding: () => ({ eventSource, session: { projections: { faceOf: () => projection } } }),
+      binding: () => ({
+        eventSource,
+        session: {
+          projections: { faceOf: () => projection },
+          getSnapshot: () => sessionSource.getSnapshot(),
+          subscribe: fn => sessionSource.subscribe(fn),
+        },
+      }),
       open: id => opened.push(id),
     },
     slots: { register: entry => entries.push(entry) },
@@ -51,7 +59,7 @@ async function clientFixture(next) {
   const face = entries[0].inject('source')
   assert.equal(entries[1].inject('source'), face)
   const release = face.acquire()
-  return { face, requests, eventSource, list, opened, externals, release, effects }
+  return { face, requests, eventSource, sessionSource, list, opened, externals, release, effects }
 }
 const settle = () => new Promise(resolve => setTimeout(resolve, 220))
 
@@ -94,5 +102,62 @@ test('absent composer projection keeps historical-route fallback', async () => {
     await settle()
     assert.equal(await f.face.reroll(), true)
     assert.equal('route' in JSON.parse(f.requests.at(-1).body), false)
+  } finally { f.release() }
+})
+
+test('running session defers revision-triggered timeline refresh until turn finishes', async () => {
+  const f = await clientFixture({ provider: 'provider', model: 'model' })
+  try {
+    f.face.load()
+    await settle()
+    const count = f.requests.length
+
+    // Start running
+    f.sessionSource.set({ running: true })
+    await settle()
+    assert.equal(f.requests.length, count)
+
+    // Streaming tokens bump revision repeatedly while running
+    f.eventSource.set({ revision: 1 })
+    f.eventSource.set({ revision: 2 })
+    f.eventSource.set({ revision: 3 })
+    await settle()
+    // No extra request should have been sent while running
+    assert.equal(f.requests.length, count)
+
+    // Turn completes: session is no longer running
+    f.sessionSource.set({ running: false })
+    await settle()
+    // Exactly one refresh request sent after turn finishes
+    assert.equal(f.requests.length, count + 1)
+  } finally { f.release() }
+})
+
+test('background load does not flip status from ready to loading', async () => {
+  const f = await clientFixture({ provider: 'provider', model: 'model' })
+  try {
+    f.face.load()
+    await settle()
+    assert.equal(f.face.hooks.messageEdit.getSnapshot().status, 'ready')
+
+    // Trigger background load
+    const loadPromise = f.face.load()
+    // Status should remain ready, not drop to loading
+    assert.equal(f.face.hooks.messageEdit.getSnapshot().status, 'ready')
+    await loadPromise
+    assert.equal(f.face.hooks.messageEdit.getSnapshot().status, 'ready')
+  } finally { f.release() }
+})
+
+test('retry before manual load completes automatically loads and executes', async () => {
+  const f = await clientFixture({ provider: 'provider', model: 'model' })
+  try {
+    // We do not call f.face.load() beforehand, status is 'idle'
+    assert.equal(f.face.hooks.messageEdit.getSnapshot().status, 'idle')
+
+    // Calling reroll/retry should auto-load and succeed
+    const success = await f.face.reroll()
+    assert.equal(success, true)
+    assert.deepEqual(f.opened, ['child'])
   } finally { f.release() }
 })

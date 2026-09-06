@@ -16,6 +16,12 @@ export const inject = ['slots', 'conversation', 'connection', 'sessions']
 
 /** Register both UI contributions over one per-session controller identity. */
 export function apply(ctx: ClientContext): void {
+  if (typeof document !== 'undefined') {
+    for (const el of Array.from(document.querySelectorAll('[data-message-edit-injected]'))) {
+      el.remove()
+    }
+  }
+
   const controllers = new Map<SessionId, MessageEditController>()
   const controllerFor = (sessionId: SessionId): MessageEditController => {
     let controller = controllers.get(sessionId)
