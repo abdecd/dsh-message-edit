@@ -6,6 +6,7 @@ import { createSnapshotStore, type ObservableSnapshot, type SnapshotStore } from
 import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
 import {
   MESSAGE_EDIT_PATH,
+  type AgentPresetOption,
   type CascadePolicy,
   type EditableBlockKind,
   type EditableMessageBlock,
@@ -40,8 +41,8 @@ export interface MessageEditFace {
   reroll(): Promise<boolean>
   /** Rebuild the whole history from composed rows and branch from it.
    * A trailing user row is queued so the new version generates a reply.
-   * An optional workspace id places the child in that workspace. */
-  fork(rows: ForkMessageRow[], workspaceId?: string): Promise<boolean>
+   * Optional workspace and agent-preset ids place the child explicitly. */
+  fork(rows: ForkMessageRow[], workspaceId?: string, agentPreset?: string): Promise<boolean>
   openVersion(sessionId: string): Promise<void>
 }
 
@@ -150,6 +151,17 @@ function decodeVersion(value: unknown, index: number): VersionSummary {
   }
 }
 
+function decodePreset(value: unknown, index: number): AgentPresetOption {
+  const row = objectValue(value, `presets[${String(index)}]`)
+  return {
+    id: stringValue(row['id'], 'preset id'),
+    isDefault: booleanValue(row['isDefault'], 'preset isDefault'),
+    ...typeof row['name'] === 'string' ? { name: row['name'] } : {},
+    ...typeof row['description'] === 'string' ? { description: row['description'] } : {},
+    ...typeof row['broken'] === 'string' ? { broken: row['broken'] } : {},
+  }
+}
+
 function arrayValue(value: unknown, label: string): unknown[] {
   if (!Array.isArray(value)) throw new TypeError(`${label} 不是数组`)
   return value
@@ -161,11 +173,20 @@ function stringArray(value: unknown, label: string): string[] {
 
 function decodeTimeline(value: unknown): MessageEditTimeline {
   const data = objectValue(value, 'Timeline 响应')
+  const agentPreset = data['agentPreset']
+  if (agentPreset !== undefined && agentPreset !== null && typeof agentPreset !== 'string') {
+    throw new TypeError('Timeline agentPreset 不是字符串或 null')
+  }
+  const presets = data['presets'] === undefined
+    ? []
+    : arrayValue(data['presets'], 'Timeline presets').map(decodePreset)
   return {
     sessionId: stringValue(data['sessionId'], 'Timeline sessionId'),
     messages: arrayValue(data['messages'], 'Timeline messages').map(decodeMessage),
     retryableTurns: arrayValue(data['retryableTurns'], 'Timeline retryableTurns').map(decodeRetryable),
     versions: arrayValue(data['versions'], 'Timeline versions').map(decodeVersion),
+    agentPreset: agentPreset ?? null,
+    presets,
     undoStack: stringArray(data['undoStack'], 'Timeline undoStack'),
     redoSessionIds: stringArray(data['redoSessionIds'], 'Timeline redoSessionIds'),
   }
@@ -270,7 +291,7 @@ export class MessageEditController {
         cascade,
       }),
       reroll: () => this.mutate({ action: 'reroll', sessionId: this.sessionId }),
-      fork: (rows, workspaceId) => this.mutate({
+      fork: (rows, workspaceId, agentPreset) => this.mutate({
         action: 'fork',
         sessionId: this.sessionId,
         rows: rows.map(row => ({
@@ -282,6 +303,7 @@ export class MessageEditController {
           ...row.sourceBlockIndex === undefined ? {} : { sourceBlockIndex: row.sourceBlockIndex },
         })),
         ...workspaceId === undefined ? {} : { workspaceId },
+        ...agentPreset === undefined ? {} : { agentPreset },
       }),
       openVersion: sessionId => this.openWhenListed(sessionId as SessionId),
     }

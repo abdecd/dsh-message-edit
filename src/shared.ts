@@ -107,12 +107,25 @@ export interface VersionSummary {
   rowCount?: number
 }
 
+/** One DSH agent preset that can be selected for a new Fork session. */
+export interface AgentPresetOption {
+  id: string
+  name?: string
+  description?: string
+  isDefault: boolean
+  broken?: string
+}
+
 /** Complete value-level projection consumed by both Timeline and header controls. */
 export interface MessageEditTimeline {
   sessionId: string
   messages: EditableMessageBlock[]
   retryableTurns: RetryableTurn[]
   versions: VersionSummary[]
+  /** Preset used by the current source session, or null when none is composed. */
+  agentPreset: string | null
+  /** Presets discovered by DSH and available to a new Fork. */
+  presets: AgentPresetOption[]
   /** Atomic inverses from the current version outward, in application order. */
   undoStack: string[]
   /** Direct child effects that can be re-applied from the current version. */
@@ -181,6 +194,8 @@ export interface ForkOperation {
   sessionId: string
   rows: ForkMessageRow[]
   workspaceId?: string
+  /** Optional DSH preset override; omitted means inherit the source preset. */
+  agentPreset?: string
   route?: ModelRoute
   title?: string
 }

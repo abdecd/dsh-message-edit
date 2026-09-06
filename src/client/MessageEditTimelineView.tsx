@@ -360,6 +360,7 @@ export function MessageEditTimelineView({
   const workspaceItems = useWorkspaces(value => value.items)
   const [cascade, setCascade] = useState<CascadePolicy>('truncate')
   const [forkWorkspaceId, setForkWorkspaceId] = useState('')
+  const [forkPresetId, setForkPresetId] = useState('')
   const [editing, setEditing] = useState<EditingState | null>(null)
   const [draft, setDraft] = useState<{ signature: string; rows: DraftRow[] } | null>(null)
   const [history, setHistory] = useState<DraftRow[][]>([])
@@ -382,6 +383,12 @@ export function MessageEditTimelineView({
   }, [acquire, load])
 
   const timeline = state.timeline
+  const presetItems = timeline?.presets ?? []
+  const sourcePreset = timeline?.agentPreset ?? null
+  const sourcePresetRow = sourcePreset === null
+    ? undefined
+    : presetItems.find(preset => preset.id === sourcePreset)
+  const sourcePresetLabel = sourcePresetRow?.name ?? sourcePreset ?? '未设置'
   const baseline = useMemo(
     () => new Map((timeline?.messages ?? []).map(message => [message.key, message] as const)),
     [timeline],
@@ -419,6 +426,7 @@ export function MessageEditTimelineView({
     lastSessionIdRef.current = timeline?.sessionId ?? null
     if (sessionChanged) {
       setForkWorkspaceId('')
+      setForkPresetId('')
       setSelectedKeys(new Set())
       setEditing(null)
       setCollapsedSectionIds(new Set(baselineRows.map(r => r.turn !== undefined ? `turn-${String(r.turn)}` : `added-${r.key}`)))
@@ -898,13 +906,19 @@ export function MessageEditTimelineView({
             <button
               type="button"
               className={styles['primaryButton']}
-              disabled={busy || editing !== null || (!changes.hasChanges && !hasSelection && selectedForkWorkspaceId === '')}
+              disabled={busy || editing !== null || (!changes.hasChanges && !hasSelection && selectedForkWorkspaceId === '' && forkPresetId === '')}
               title={hasSelection
                 ? '基于当前选中的消息列表重建新版本历史'
                 : selectedForkWorkspaceId !== ''
                   ? '按当前历史 Fork 到目标工作区'
-                  : '按右列当前内容重建消息历史并生成新版本；结尾的用户消息会触发新的助手回复'}
-              onClick={() => { void fork(forkRows(), selectedForkWorkspaceId || undefined) }}
+                  : forkPresetId !== ''
+                    ? '按当前历史 Fork 并使用选定的 DSH preset'
+                    : '按右列当前内容重建消息历史并生成新版本；结尾的用户消息会触发新的助手回复'}
+              onClick={() => { void fork(
+                forkRows(),
+                selectedForkWorkspaceId || undefined,
+                forkPresetId || undefined,
+              ) }}
             >
               {forkLabel}
             </button>
@@ -931,6 +945,22 @@ export function MessageEditTimelineView({
               {workspaceItems.map(workspace => (
                 <option key={workspace.workspaceId} value={workspace.workspaceId}>
                   {workspace.title} · {workspace.path}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className={`${styles['cascadeField']} ${styles['workspaceField']}`}>
+            <span>Fork 使用 DSH preset</span>
+            <select
+              className={`${styles['select']} ${styles['workspaceSelect']}`}
+              value={forkPresetId}
+              disabled={busy}
+              onChange={(event) => { setForkPresetId(event.currentTarget.value) }}
+            >
+              <option value="">沿用源会话：{sourcePresetLabel}</option>
+              {presetItems.map(preset => (
+                <option key={preset.id} value={preset.id} disabled={preset.broken !== undefined}>
+                  {preset.name ?? preset.id}{preset.isDefault ? ' · 默认' : ''}{preset.broken === undefined ? '' : ' · 不可用'}
                 </option>
               ))}
             </select>
