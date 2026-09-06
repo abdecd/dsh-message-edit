@@ -71,6 +71,26 @@ function timeLabel(value: number): string {
   })
 }
 
+function DragGripIcon(): ReactNode {
+  return (
+    <svg
+      width="12"
+      height="14"
+      viewBox="0 0 12 14"
+      fill="currentColor"
+      aria-hidden="true"
+      style={{ display: 'block', pointerEvents: 'none', flexShrink: 0 }}
+    >
+      <circle cx="3.5" cy="2.5" r="1.25" />
+      <circle cx="8.5" cy="2.5" r="1.25" />
+      <circle cx="3.5" cy="7" r="1.25" />
+      <circle cx="8.5" cy="7" r="1.25" />
+      <circle cx="3.5" cy="11.5" r="1.25" />
+      <circle cx="8.5" cy="11.5" r="1.25" />
+    </svg>
+  )
+}
+
 function addedRow(kind: EditableBlockKind): DraftRow {
   return { key: `new-${crypto.randomUUID()}`, kind, text: '', added: true }
 }
@@ -255,7 +275,7 @@ function MessageCard({
                 }}
                 onDragEnd={() => { onDragEnd?.() }}
               >
-                ⋮⋮
+                <DragGripIcon />
               </span>
             )}
             <input
@@ -1177,7 +1197,7 @@ export function MessageEditTimelineView({
                               }}
                               onDragEnd={handleDragEnd}
                             >
-                              ⋮⋮
+                              <DragGripIcon />
                             </span>
                           )}
                           <input
