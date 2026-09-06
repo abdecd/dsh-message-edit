@@ -93,6 +93,7 @@ export const name = 'message-edit'
 export const inject = [
   'sessions',
   'agents',
+  'agentPresets',
   'sessionPersistence',
   'sessionQuery',
   'workspaceRegistry',

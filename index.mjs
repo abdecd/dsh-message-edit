@@ -14,6 +14,7 @@ const name = "message-edit";
 const inject = [
 	"sessions",
 	"agents",
+	"agentPresets",
 	"sessionPersistence",
 	"sessionQuery",
 	"workspaceRegistry",
