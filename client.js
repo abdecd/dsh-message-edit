@@ -560,15 +560,15 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var InlineMessageEdit_module_css_default = {
-			"panel": "Ps3QDa_panel",
-			"footer": "Ps3QDa_footer",
-			"pickerItem": "Ps3QDa_pickerItem",
 			"iconButton": "Ps3QDa_iconButton",
-			"picker": "Ps3QDa_picker",
-			"overlay": "Ps3QDa_overlay",
-			"title": "Ps3QDa_title",
 			"pickerItemActive": "Ps3QDa_pickerItemActive",
-			"input": "Ps3QDa_input"
+			"input": "Ps3QDa_input",
+			"picker": "Ps3QDa_picker",
+			"title": "Ps3QDa_title",
+			"footer": "Ps3QDa_footer",
+			"panel": "Ps3QDa_panel",
+			"pickerItem": "Ps3QDa_pickerItem",
+			"overlay": "Ps3QDa_overlay"
 		};
 		//#endregion
 		//#region src/client/InlineMessageEdit.tsx
@@ -785,8 +785,11 @@ window.__ModuleLoader__.load({
 						const actionRow = userRow.querySelector("[class*=\"actions\"]");
 						if (!actionRow) continue;
 						const marker = actionRow;
+						const turnAttr = userRow.closest("[data-chat-turn]")?.getAttribute("data-chat-turn");
+						const domTurn = turnAttr ? Number.parseInt(turnAttr, 10) : void 0;
+						const hasValidDomTurn = domTurn !== void 0 && Number.isFinite(domTurn);
 						if (marker.__messageEditInjected === true) {
-							if (marker.__messageEditEventSeq !== void 0 && userMessages.some((message) => message.eventSeq === marker.__messageEditEventSeq) && actionRow.querySelector("[data-message-edit-injected]")) {
+							if (marker.__messageEditEventSeq !== void 0 && userMessages.some((message) => message.eventSeq === marker.__messageEditEventSeq) && (!hasValidDomTurn || marker.__messageEditTurn === domTurn) && actionRow.querySelector("[data-message-edit-injected]")) {
 								if (marker.__messageEditEventSeq !== void 0) claimedEvents.add(marker.__messageEditEventSeq);
 								continue;
 							}
@@ -794,25 +797,37 @@ window.__ModuleLoader__.load({
 							marker.__messageEditInjected = false;
 						}
 						const userText = (userRow.querySelector("[class*=\"bubble\"]")?.textContent ?? userRow.textContent ?? "").trim();
-						let candidate = userMessages.find((m) => !claimedEvents.has(m.eventSeq) && m.text.length > 0 && userText.includes(m.text.slice(0, 24)));
-						if (!candidate) candidate = userMessages.find((m) => !claimedEvents.has(m.eventSeq));
+						let candidate;
+						if (hasValidDomTurn) {
+							const turnCandidates = userMessages.filter((m) => !claimedEvents.has(m.eventSeq) && m.turn === domTurn);
+							candidate = turnCandidates.find((m) => userText.includes(m.text) || m.text.includes(userText)) ?? turnCandidates[0];
+						} else {
+							const unclaimed = userMessages.filter((m) => !claimedEvents.has(m.eventSeq));
+							candidate = unclaimed.find((m) => m.text.length > 0 && userText.includes(m.text)) ?? unclaimed[0];
+						}
 						if (!candidate) continue;
 						const eventSeq = candidate.eventSeq;
 						const turn = candidate.turn;
 						claimedEvents.add(eventSeq);
 						marker.__messageEditInjected = true;
 						marker.__messageEditEventSeq = eventSeq;
+						marker.__messageEditTurn = turn;
 						const editButton = document.createElement("button");
 						editButton.type = "button";
 						editButton.className = STYLE.iconButton;
 						editButton.setAttribute("aria-label", "编辑消息");
 						editButton.setAttribute("data-message-edit-injected", "true");
+						editButton.setAttribute("data-message-edit-turn", String(turn));
 						editButton.title = "编辑消息";
 						editButton.appendChild(svgIcon(EDIT_PATH));
 						const editMessage = (e) => {
 							e.preventDefault();
 							e.stopPropagation();
-							const targetBlock = messagesRef.current.filter((m) => m.eventSeq === eventSeq && m.kind === "user")[0] ?? candidate;
+							const currentTurnAttr = editButton.closest("[data-chat-turn]")?.getAttribute("data-chat-turn") ?? editButton.getAttribute("data-message-edit-turn");
+							const realDomTurn = currentTurnAttr ? Number.parseInt(currentTurnAttr, 10) : void 0;
+							let targetBlock = messagesRef.current.find((m) => m.eventSeq === eventSeq && m.kind === "user");
+							if (!targetBlock && realDomTurn !== void 0 && Number.isFinite(realDomTurn)) targetBlock = messagesRef.current.find((m) => m.turn === realDomTurn && m.kind === "user");
+							targetBlock = targetBlock ?? candidate;
 							if (targetBlock) overlays.editBlock(targetBlock);
 						};
 						editButton.addEventListener("click", editMessage);
@@ -821,14 +836,18 @@ window.__ModuleLoader__.load({
 						retryButton.className = STYLE.iconButton;
 						retryButton.setAttribute("aria-label", "重试此回合");
 						retryButton.setAttribute("data-message-edit-injected", "true");
+						retryButton.setAttribute("data-message-edit-turn", String(turn));
 						retryButton.title = "重试此回合";
 						retryButton.appendChild(svgIcon(REFRESH_PATH));
 						const retryTurn = (e) => {
 							e.preventDefault();
 							e.stopPropagation();
 							if (retryButton.disabled) return;
-							const targetTurn = messagesRef.current.filter((m) => m.eventSeq === eventSeq && m.kind === "user")[0]?.turn ?? turn;
-							if (targetTurn === void 0) {
+							const currentTurnAttr = retryButton.closest("[data-chat-turn]")?.getAttribute("data-chat-turn") ?? retryButton.getAttribute("data-message-edit-turn");
+							const realDomTurn = currentTurnAttr ? Number.parseInt(currentTurnAttr, 10) : void 0;
+							const liveBlocks = messagesRef.current.filter((m) => m.eventSeq === eventSeq && m.kind === "user");
+							const targetTurn = realDomTurn !== void 0 && Number.isFinite(realDomTurn) ? realDomTurn : liveBlocks[0]?.turn ?? turn;
+							if (targetTurn === void 0 || Number.isNaN(targetTurn)) {
 								console.warn("[dsh-message-edit] 无法解析该用户消息对应的回合");
 								return;
 							}
@@ -864,6 +883,7 @@ window.__ModuleLoader__.load({
 							retryButton.remove();
 							delete marker.__messageEditInjected;
 							delete marker.__messageEditEventSeq;
+							delete marker.__messageEditTurn;
 							delete marker.__messageEditCleanup;
 						};
 						marker.__messageEditCleanup = rowCleanup;
@@ -932,74 +952,74 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var MessageEditTimelineView_module_css_default = {
-			"pageHeader": "hbVeaa_pageHeader",
+			"textButton": "hbVeaa_textButton",
+			"empty": "hbVeaa_empty",
 			"workspaceSelect": "hbVeaa_workspaceSelect",
-			"collapseTurnButton": "hbVeaa_collapseTurnButton",
-			"subtitle": "hbVeaa_subtitle",
-			"versionDiff": "hbVeaa_versionDiff",
-			"title": "hbVeaa_title",
-			"secondaryButton": "hbVeaa_secondaryButton",
-			"effectButtons": "hbVeaa_effectButtons",
-			"primaryButton": "hbVeaa_primaryButton",
-			"headerActions": "hbVeaa_headerActions",
-			"workspaceField": "hbVeaa_workspaceField",
+			"versionMeta": "hbVeaa_versionMeta",
+			"turnSection": "hbVeaa_turnSection",
 			"sectionHeading": "hbVeaa_sectionHeading",
-			"newBadge": "hbVeaa_newBadge",
-			"turnList": "hbVeaa_turnList",
+			"messageTime": "hbVeaa_messageTime",
+			"messageTextCollapsed": "hbVeaa_messageTextCollapsed",
+			"cascadeField": "hbVeaa_cascadeField",
+			"actionRow": "hbVeaa_actionRow",
+			"status": "hbVeaa_status",
+			"editorHint": "hbVeaa_editorHint",
+			"messageSpacer": "hbVeaa_messageSpacer",
+			"emptyState": "hbVeaa_emptyState",
 			"messageCard": "hbVeaa_messageCard",
+			"turnActions": "hbVeaa_turnActions",
+			"messageHeader": "hbVeaa_messageHeader",
+			"intro": "hbVeaa_intro",
+			"turnPreview": "hbVeaa_turnPreview",
+			"checkbox": "hbVeaa_checkbox",
+			"messageTextWrapper": "hbVeaa_messageTextWrapper",
+			"composerFooter": "hbVeaa_composerFooter",
+			"versionDot": "hbVeaa_versionDot",
+			"headerActions": "hbVeaa_headerActions",
+			"primaryButton": "hbVeaa_primaryButton",
+			"dragHandle": "hbVeaa_dragHandle",
+			"count": "hbVeaa_count",
+			"versionTitle": "hbVeaa_versionTitle",
+			"turnHeaderLeft": "hbVeaa_turnHeaderLeft",
+			"workspaceField": "hbVeaa_workspaceField",
+			"notice": "hbVeaa_notice",
+			"changeChip": "hbVeaa_changeChip",
 			"root": "hbVeaa_root",
 			"textarea": "hbVeaa_textarea",
-			"versionMain": "hbVeaa_versionMain",
-			"emptyState": "hbVeaa_emptyState",
-			"turnActions": "hbVeaa_turnActions",
-			"expandButton": "hbVeaa_expandButton",
-			"versionList": "hbVeaa_versionList",
-			"currentBadge": "hbVeaa_currentBadge",
-			"composerFooter": "hbVeaa_composerFooter",
-			"turnPreview": "hbVeaa_turnPreview",
-			"editorHint": "hbVeaa_editorHint",
-			"turnHeaderLeft": "hbVeaa_turnHeaderLeft",
-			"versionTitle": "hbVeaa_versionTitle",
-			"intro": "hbVeaa_intro",
-			"textButton": "hbVeaa_textButton",
-			"turnsPanel": "hbVeaa_turnsPanel",
-			"versionsPanel": "hbVeaa_versionsPanel",
-			"versionDot": "hbVeaa_versionDot",
-			"versionItem": "hbVeaa_versionItem",
-			"notice": "hbVeaa_notice",
-			"turnHeader": "hbVeaa_turnHeader",
-			"checkbox": "hbVeaa_checkbox",
-			"effectDepth": "hbVeaa_effectDepth",
-			"pathBadge": "hbVeaa_pathBadge",
-			"editor": "hbVeaa_editor",
-			"status": "hbVeaa_status",
-			"editorActions": "hbVeaa_editorActions",
-			"versionLine": "hbVeaa_versionLine",
-			"messageTime": "hbVeaa_messageTime",
-			"messageList": "hbVeaa_messageList",
-			"dragHandle": "hbVeaa_dragHandle",
 			"editedBadge": "hbVeaa_editedBadge",
-			"select": "hbVeaa_select",
-			"turnTitle": "hbVeaa_turnTitle",
-			"empty": "hbVeaa_empty",
+			"subtitle": "hbVeaa_subtitle",
+			"effectDepth": "hbVeaa_effectDepth",
+			"versionDiff": "hbVeaa_versionDiff",
+			"versionList": "hbVeaa_versionList",
+			"editorActions": "hbVeaa_editorActions",
+			"turnList": "hbVeaa_turnList",
+			"editor": "hbVeaa_editor",
+			"versionLine": "hbVeaa_versionLine",
+			"messageList": "hbVeaa_messageList",
 			"messageText": "hbVeaa_messageText",
-			"messageHeader": "hbVeaa_messageHeader",
-			"messageTextCollapsed": "hbVeaa_messageTextCollapsed",
-			"messageTextWrapper": "hbVeaa_messageTextWrapper",
-			"messageSpacer": "hbVeaa_messageSpacer",
-			"kindBadge": "hbVeaa_kindBadge",
-			"cascadeField": "hbVeaa_cascadeField",
-			"turnSection": "hbVeaa_turnSection",
-			"versionButton": "hbVeaa_versionButton",
+			"collapseTurnButton": "hbVeaa_collapseTurnButton",
 			"effectControls": "hbVeaa_effectControls",
-			"batchActions": "hbVeaa_batchActions",
-			"changeChip": "hbVeaa_changeChip",
-			"columns": "hbVeaa_columns",
+			"pageHeader": "hbVeaa_pageHeader",
+			"turnTitle": "hbVeaa_turnTitle",
+			"select": "hbVeaa_select",
+			"effectButtons": "hbVeaa_effectButtons",
+			"versionItem": "hbVeaa_versionItem",
+			"currentBadge": "hbVeaa_currentBadge",
+			"secondaryButton": "hbVeaa_secondaryButton",
 			"changeSummary": "hbVeaa_changeSummary",
-			"count": "hbVeaa_count",
+			"turnsPanel": "hbVeaa_turnsPanel",
+			"versionMain": "hbVeaa_versionMain",
 			"error": "hbVeaa_error",
-			"actionRow": "hbVeaa_actionRow",
-			"versionMeta": "hbVeaa_versionMeta"
+			"expandButton": "hbVeaa_expandButton",
+			"batchActions": "hbVeaa_batchActions",
+			"title": "hbVeaa_title",
+			"pathBadge": "hbVeaa_pathBadge",
+			"turnHeader": "hbVeaa_turnHeader",
+			"kindBadge": "hbVeaa_kindBadge",
+			"newBadge": "hbVeaa_newBadge",
+			"versionsPanel": "hbVeaa_versionsPanel",
+			"columns": "hbVeaa_columns",
+			"versionButton": "hbVeaa_versionButton"
 		};
 		//#endregion
 		//#region src/client/MessageEditTimelineView.tsx

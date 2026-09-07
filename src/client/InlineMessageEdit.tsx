@@ -252,12 +252,20 @@ export function InlineMessageEdit({
         const marker = actionRow as HTMLElement & {
           __messageEditInjected?: boolean
           __messageEditEventSeq?: number
+          __messageEditTurn?: number
           __messageEditCleanup?: () => void
         }
 
+        // Extract turn from DOM ancestor if present
+        const turnContainer = userRow.closest<HTMLElement>('[data-chat-turn]')
+        const turnAttr = turnContainer?.getAttribute('data-chat-turn')
+        const domTurn = turnAttr ? Number.parseInt(turnAttr, 10) : undefined
+        const hasValidDomTurn = domTurn !== undefined && Number.isFinite(domTurn)
+
         if (marker.__messageEditInjected === true) {
           const stillValid = marker.__messageEditEventSeq !== undefined &&
-            userMessages.some(message => message.eventSeq === marker.__messageEditEventSeq)
+            userMessages.some(message => message.eventSeq === marker.__messageEditEventSeq) &&
+            (!hasValidDomTurn || marker.__messageEditTurn === domTurn)
           if (stillValid && actionRow.querySelector('[data-message-edit-injected]')) {
             if (marker.__messageEditEventSeq !== undefined) claimedEvents.add(marker.__messageEditEventSeq)
             continue
@@ -269,15 +277,22 @@ export function InlineMessageEdit({
         const bubble = userRow.querySelector<HTMLElement>('[class*="bubble"]')
         const userText = (bubble?.textContent ?? userRow.textContent ?? '').trim()
 
-        // Match against unclaimed user messages by text, or fallback to sequential order
-        let candidate = userMessages.find(m => (
-          !claimedEvents.has(m.eventSeq) &&
-          m.text.length > 0 &&
-          userText.includes(m.text.slice(0, 24))
-        ))
-        if (!candidate) {
-          candidate = userMessages.find(m => !claimedEvents.has(m.eventSeq))
+        let candidate: EditableMessageBlock | undefined
+
+        // 1. 优先利用 DOM 原生的 data-chat-turn 进行严格回合限域
+        if (hasValidDomTurn) {
+          const turnCandidates = userMessages.filter(
+            m => !claimedEvents.has(m.eventSeq) && m.turn === domTurn,
+          )
+          candidate = turnCandidates.find(m => userText.includes(m.text) || m.text.includes(userText))
+            ?? turnCandidates[0]
+        } else {
+          // 2. 降级：仅在缺失 data-chat-turn 时，按未认领的顺序匹配
+          const unclaimed = userMessages.filter(m => !claimedEvents.has(m.eventSeq))
+          candidate = unclaimed.find(m => m.text.length > 0 && userText.includes(m.text))
+            ?? unclaimed[0]
         }
+
         if (!candidate) continue
 
         const eventSeq = candidate.eventSeq
@@ -285,19 +300,29 @@ export function InlineMessageEdit({
         claimedEvents.add(eventSeq)
         marker.__messageEditInjected = true
         marker.__messageEditEventSeq = eventSeq
+        marker.__messageEditTurn = turn
 
         const editButton = document.createElement('button')
         editButton.type = 'button'
         editButton.className = STYLE.iconButton
         editButton.setAttribute('aria-label', '编辑消息')
         editButton.setAttribute('data-message-edit-injected', 'true')
+        editButton.setAttribute('data-message-edit-turn', String(turn))
         editButton.title = '编辑消息'
         editButton.appendChild(svgIcon(EDIT_PATH))
         const editMessage = (e: MouseEvent): void => {
           e.preventDefault()
           e.stopPropagation()
-          const liveBlocks = messagesRef.current.filter(m => m.eventSeq === eventSeq && m.kind === 'user')
-          const targetBlock = liveBlocks[0] ?? candidate
+
+          const currentTurnAttr = editButton.closest<HTMLElement>('[data-chat-turn]')?.getAttribute('data-chat-turn')
+            ?? editButton.getAttribute('data-message-edit-turn')
+          const realDomTurn = currentTurnAttr ? Number.parseInt(currentTurnAttr, 10) : undefined
+
+          let targetBlock = messagesRef.current.find(m => m.eventSeq === eventSeq && m.kind === 'user')
+          if (!targetBlock && realDomTurn !== undefined && Number.isFinite(realDomTurn)) {
+            targetBlock = messagesRef.current.find(m => m.turn === realDomTurn && m.kind === 'user')
+          }
+          targetBlock = targetBlock ?? candidate
           if (targetBlock) overlays.editBlock(targetBlock)
         }
         editButton.addEventListener('click', editMessage)
@@ -307,6 +332,7 @@ export function InlineMessageEdit({
         retryButton.className = STYLE.iconButton
         retryButton.setAttribute('aria-label', '重试此回合')
         retryButton.setAttribute('data-message-edit-injected', 'true')
+        retryButton.setAttribute('data-message-edit-turn', String(turn))
         retryButton.title = '重试此回合'
         retryButton.appendChild(svgIcon(REFRESH_PATH))
         const retryTurn = (e: MouseEvent): void => {
@@ -314,10 +340,17 @@ export function InlineMessageEdit({
           e.stopPropagation()
           if (retryButton.disabled) return
 
-          const liveBlocks = messagesRef.current.filter(m => m.eventSeq === eventSeq && m.kind === 'user')
-          const targetTurn = liveBlocks[0]?.turn ?? turn
+          // Read actual turn directly from DOM ancestor at click time as primary authority
+          const currentTurnAttr = retryButton.closest<HTMLElement>('[data-chat-turn]')?.getAttribute('data-chat-turn')
+            ?? retryButton.getAttribute('data-message-edit-turn')
+          const realDomTurn = currentTurnAttr ? Number.parseInt(currentTurnAttr, 10) : undefined
 
-          if (targetTurn === undefined) {
+          const liveBlocks = messagesRef.current.filter(m => m.eventSeq === eventSeq && m.kind === 'user')
+          const targetTurn = (realDomTurn !== undefined && Number.isFinite(realDomTurn))
+            ? realDomTurn
+            : (liveBlocks[0]?.turn ?? turn)
+
+          if (targetTurn === undefined || Number.isNaN(targetTurn)) {
             console.warn('[dsh-message-edit] 无法解析该用户消息对应的回合')
             return
           }
@@ -361,6 +394,7 @@ export function InlineMessageEdit({
           retryButton.remove()
           delete marker.__messageEditInjected
           delete marker.__messageEditEventSeq
+          delete marker.__messageEditTurn
           delete marker.__messageEditCleanup
         }
         marker.__messageEditCleanup = rowCleanup
