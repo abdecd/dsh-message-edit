@@ -1103,14 +1103,21 @@ async function runOperation(ctx, operation) {
 		}
 	});
 }
-function ownVersionEvent(header, events) {
-	const inherited = header.inheritedEventCount ?? header.seedLength ?? 0;
-	const ownEvents = events.filter((event) => event.type === "message-edit/version" && event.seq >= inherited);
+function ownVersionEvent(header, events, inheritedEventCount = 0) {
+	const parent = header.parentSession;
+	const inherited = header.inheritedEventCount ?? header.seedLength ?? inheritedEventCount;
+	let ownEvents = events.filter((event) => event.type === "message-edit/version" && event.seq >= inherited);
+	if (ownEvents.length > 1 && parent !== void 0) {
+		const matchingParent = ownEvents.filter((event) => {
+			const data = event.data;
+			return data?.inverse?.kind === "restore-version" && data?.inverse?.sessionId === parent || data?.sourceSessionId === parent;
+		});
+		if (matchingParent.length === 1) ownEvents = matchingParent;
+	}
 	if (ownEvents.length === 0) return void 0;
 	if (ownEvents.length > 1) throw new Error(`会话 ${header.id} 包含多个自身版本效果。`);
 	const event = ownEvents[0];
 	if (event === void 0) return void 0;
-	const parent = header.parentSession;
 	if ("schemaVersion" in event.data) {
 		const version = event.data;
 		if (version.schemaVersion !== 2) throw new Error(`会话 ${header.id} 使用不支持的版本效果结构。`);
@@ -1174,23 +1181,26 @@ async function mapConcurrent(items, worker) {
 	await Promise.all(Array.from({ length: workers }, () => run()));
 	return results;
 }
-/** Full log for the requested session: live borrow, persisted inspection, query fallback. */
-async function readCurrentLog(ctx, sessionId) {
+/** Full log and exact inherited cut: live borrow, persisted inspection, query fallback. */
+async function readSessionLog(ctx, sessionId) {
 	const live = ctx.sessions.get(sessionId);
-	if (live !== void 0) return live.snapshotEvents();
+	if (live !== void 0) return {
+		events: live.snapshotEvents(),
+		inheritedEventCount: Number(live.inheritedEventCount ?? 0)
+	};
 	const persistence = ctx.get("sessionPersistence");
-	if (persistence !== void 0) return (await persistence.inspect(sessionId)).events;
-	return (await ctx.sessionQuery.readSession(sessionId)).events;
-}
-/** Own-version scan window for one lineage node: the tail from the durable
-* seed boundary is enough, and root nodes cannot carry a version effect. */
-async function versionLog(ctx, record) {
-	const inherited = record.header.inheritedEventCount ?? record.header.seedLength ?? 0;
-	const live = ctx.sessions.get(record.header.id);
-	if (live !== void 0) return live.snapshotEvents().slice(inherited);
-	const persistence = ctx.get("sessionPersistence");
-	if (persistence !== void 0) return (await persistence.readFrom(record.header.id, inherited)).events;
-	return (await ctx.sessionQuery.readSession(record.header.id)).events.slice(inherited);
+	if (persistence !== void 0) {
+		const inspected = await persistence.inspect(sessionId);
+		return {
+			events: inspected.events,
+			inheritedEventCount: Number(inspected.inheritedEventCount ?? 0)
+		};
+	}
+	const snapshot = await ctx.sessionQuery.readSession(sessionId);
+	return {
+		events: snapshot.events,
+		inheritedEventCount: Number(snapshot.inheritedEventCount ?? 0)
+	};
 }
 async function timeline(ctx, sessionId) {
 	const targetTrace = await ctx.sessionQuery.traceSession(sessionId);
@@ -1198,9 +1208,12 @@ async function timeline(ctx, sessionId) {
 	const rootTrace = rootId === sessionId ? targetTrace : await ctx.sessionQuery.traceSession(rootId);
 	const lineage = flattenLineage(rootTrace.target, rootTrace.descendants);
 	const logs = await mapConcurrent(lineage, async ({ record }) => {
-		if (record.header.id === sessionId) return readCurrentLog(ctx, sessionId);
-		if (record.header.parentSession === void 0) return [];
-		return versionLog(ctx, record);
+		if (record.header.id === sessionId) return readSessionLog(ctx, sessionId);
+		if (record.header.parentSession === void 0) return {
+			events: [],
+			inheritedEventCount: 0
+		};
+		return readSessionLog(ctx, record.header.id);
 	});
 	const recordsById = new Map(lineage.map(({ record }) => [record.header.id, record]));
 	const currentPath = /* @__PURE__ */ new Set();
@@ -1210,7 +1223,11 @@ async function timeline(ctx, sessionId) {
 		pathId = recordsById.get(pathId)?.header.parentSession;
 	}
 	const versions = lineage.map(({ record, depth }, index) => {
-		const version = ownVersionEvent(record.header, logs[index] ?? []);
+		const log = logs[index] ?? {
+			events: [],
+			inheritedEventCount: 0
+		};
+		const version = ownVersionEvent(record.header, log.events, log.inheritedEventCount);
 		return {
 			sessionId: record.header.id,
 			...record.header.parentSession === void 0 ? {} : { parentSessionId: record.header.parentSession },
@@ -1251,7 +1268,7 @@ async function timeline(ctx, sessionId) {
 	}
 	const redoSessionIds = versions.filter((version) => version.inverseSessionId === sessionId).map((version) => version.sessionId);
 	const currentIndex = versions.findIndex((version) => version.current);
-	const currentLog = logs[currentIndex];
+	const currentLog = logs[currentIndex]?.events;
 	if (currentIndex < 0 || currentLog === void 0) throw new Error("当前版本不在版本树中。");
 	const turns = closedTurns(currentLog);
 	const currentRecord = lineage[currentIndex]?.record;

@@ -36,7 +36,7 @@
     "build": "node ./scripts/build.mjs",
     "prepublishOnly": "npm run build",
     "typecheck": "tsc -p tsconfig.json --incremental false && tsc -p tsconfig.client.json --incremental false",
-    "test": "node --test scripts/migration.test.mjs"
+    "test": "node --test scripts/migration.test.mjs scripts/lineage.test.mjs"
   },
   "repository": {
     "type": "git",
