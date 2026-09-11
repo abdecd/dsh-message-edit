@@ -1,4 +1,5 @@
 import { installModelSelection } from "@deepseek-ai/dsh-agent";
+import { createSystemMessage } from "@deepseek-ai/dsh-llm";
 //#region src/shared.ts
 /** Same-origin endpoint owned by the Message Edit host plugin. */
 const MESSAGE_EDIT_PATH = "/message-edit";
@@ -6,6 +7,14 @@ const MESSAGE_EDIT_PATH = "/message-edit";
 const MESSAGE_EDIT_VIEW_ORDER = 15;
 /** Current durable event schema for structurally paired version effects. */
 const MESSAGE_EDIT_VERSION_SCHEMA = 2;
+/** Resolve a retry target from its durable user-message event identity.
+* Rendered chat turn attributes are intentionally excluded: they are view
+* placement metadata and can change independently of the session timeline. */
+function retryTurnForEvent(messages, eventSeq) {
+	const message = messages.find((candidate) => candidate.eventSeq === eventSeq && candidate.kind === "user");
+	if (message === void 0 || !Number.isSafeInteger(message.turn) || message.turn < 0) return void 0;
+	return message.turn;
+}
 //#endregion
 //#region src/index.ts
 /** Stable Cordis plugin name. */
@@ -119,7 +128,7 @@ function closedTurns(events, includeOpen = true) {
 			continue;
 		}
 		if (current === void 0) {
-			if (event.type === "user/message" || event.type === "assistant/message" || event.type === "tool/result" || event.type === "request/header" || event.type === "request/context") current = {
+			if (event.type === "system/message" || event.type === "user/message" || event.type === "assistant/message" || event.type === "tool/result" || event.type === "request/header" || event.type === "request/context") current = {
 				turn: typeof event.data?.turn === "number" ? event.data.turn : 1,
 				startSeq: event.seq,
 				assistants: [],
@@ -138,6 +147,10 @@ function closedTurns(events, includeOpen = true) {
 			continue;
 		}
 		if (event.type === "tool/result" && (event.data.turn === void 0 || event.data.turn === current.turn)) {
+			current.events.push(event);
+			continue;
+		}
+		if (event.type === "system/message" && (event.data.turn === void 0 || event.data.turn === current.turn)) {
 			current.events.push(event);
 			continue;
 		}
@@ -169,14 +182,26 @@ function formatToolResultText(event) {
 }
 function editableMessages(turns) {
 	const result = [];
-	for (const turn of turns) for (const event of turn.events) if (event.type === "request/header") {
-		if (event.data.header?.system) result.push({
+	for (const turn of turns) for (const event of turn.events) if (event.type === "system/message") {
+		const text = event.data.message.content.find((b) => b.type === "text")?.text ?? "";
+		if (text) result.push({
 			key: `${String(event.seq)}:sys`,
 			turn: turn.turn,
 			eventSeq: event.seq,
 			blockIndex: 0,
 			kind: "system",
-			text: event.data.header.system,
+			text,
+			time: event.time
+		});
+	} else if (event.type === "request/header") {
+		const legacySystem = event.data.header?.system;
+		if (legacySystem) result.push({
+			key: `${String(event.seq)}:sys`,
+			turn: turn.turn,
+			eventSeq: event.seq,
+			blockIndex: 0,
+			kind: "system",
+			text: legacySystem,
 			time: event.time
 		});
 	} else if (event.type === "user/message") {
@@ -237,6 +262,23 @@ function retryableTurns(turns) {
 function downstreamUsers(turns, start) {
 	return turns.slice(start).flatMap((turn) => turn.user === void 0 ? [] : [cloneUser(turn.user.data)]);
 }
+/**
+* Agent inbox inserts are persisted immediately before a normal turn starts.
+* They are part of the source prefix, but a seeded child will consume them on
+* startup. Branch operations queue their replacement explicitly, so inheriting
+* that insert would run the original input once and the replacement again.
+*/
+function replayBoundary(events, turn) {
+	const userId = turn.user?.data.id;
+	if (typeof userId !== "string") return turn.startSeq - 1;
+	const pending = events.findLast((event) => {
+		if (event.type !== "agent/inbox/spliced" || event.seq >= turn.startSeq) return false;
+		const data = event.data;
+		if (data?.target !== "next-turn" || !Array.isArray(data.inserted)) return false;
+		return data.inserted.some((message) => message?.id === userId);
+	});
+	return pending?.seq === void 0 ? turn.startSeq - 1 : pending.seq - 1;
+}
 function assistantReplacement(event, blockIndex, text) {
 	const replaced = replaceTextBlock(event.data.message.content, blockIndex, text).filter((block) => block.type === "text" || block.type === "reasoning" || block.type === "tool-call");
 	return Object.freeze({
@@ -262,7 +304,7 @@ function editPlan(operation, turns, events, fallback, preferred) {
 		const edited = cloneUser(event.data, replaceTextBlock(event.data.content, operation.blockIndex, operation.text));
 		const later = operation.cascade === "preserve" ? downstreamUsers(turns, turnIndex + 1) : [];
 		return {
-			boundary: turn.startSeq - 1,
+			boundary: replayBoundary(events, turn),
 			version: pairVersionEffect(operation.sessionId, {
 				operation: "edit",
 				cascade: operation.cascade,
@@ -277,12 +319,12 @@ function editPlan(operation, turns, events, fallback, preferred) {
 			queuedUsers: [edited, ...later]
 		};
 	}
-	if (event.type === "request/header") {
-		const beforeText = event.data.header?.system ?? "";
+	if (event.type === "system/message" || event.type === "request/header") {
+		const beforeText = event.type === "system/message" ? event.data.message.content.find((b) => b.type === "text")?.text ?? "" : event.data.header?.system ?? "";
 		const later = operation.cascade === "preserve" ? downstreamUsers(turns, turnIndex + 1) : [];
 		const turnUser = turn.user ? [cloneUser(turn.user.data)] : [];
 		return {
-			boundary: turn.startSeq - 1,
+			boundary: replayBoundary(events, turn),
 			version: pairVersionEffect(operation.sessionId, {
 				operation: "edit",
 				cascade: operation.cascade,
@@ -319,10 +361,11 @@ function editPlan(operation, turns, events, fallback, preferred) {
 	}
 	manualTurnItems.push({
 		kind: "assistant",
-		assistant: assistantReplacement(event, operation.blockIndex, operation.text)
+		assistant: assistantReplacement(event, operation.blockIndex, operation.text),
+		...event.data.stream === void 0 ? {} : { assistantStream: event.data.stream }
 	});
 	return {
-		boundary: turn.startSeq - 1,
+		boundary: replayBoundary(events, turn),
 		version: pairVersionEffect(operation.sessionId, {
 			operation: "edit",
 			cascade: operation.cascade,
@@ -340,12 +383,12 @@ function editPlan(operation, turns, events, fallback, preferred) {
 		queuedUsers: operation.cascade === "preserve" ? downstreamUsers(turns, turnIndex + 1) : []
 	};
 }
-function retryPlan(sessionId, turnNumber, cascade, turns) {
+function retryPlan(sessionId, turnNumber, cascade, turns, events) {
 	const turnIndex = turns.findIndex((turn) => turn.turn === turnNumber);
 	const turn = turns[turnIndex];
 	if (turn?.user === void 0) throw new Error("所选回合没有可重放的用户输入。");
 	return {
-		boundary: turn.startSeq - 1,
+		boundary: replayBoundary(events, turn),
 		version: pairVersionEffect(sessionId, {
 			operation: "retry",
 			cascade,
@@ -356,14 +399,14 @@ function retryPlan(sessionId, turnNumber, cascade, turns) {
 		queuedUsers: cascade === "preserve" ? downstreamUsers(turns, turnIndex) : [cloneUser(turn.user.data)]
 	};
 }
-function rerollPlan(sessionId, turns) {
+function rerollPlan(sessionId, turns, events) {
 	for (let index = turns.length - 1; index >= 0; index -= 1) {
 		const turn = turns[index];
 		if (turn?.user === void 0) continue;
 		const target = turn.assistants.findLast((event) => event.data.message.content.some(isTextualBlock));
 		if (target === void 0) continue;
 		return {
-			boundary: turn.startSeq - 1,
+			boundary: replayBoundary(events, turn),
 			version: pairVersionEffect(sessionId, {
 				operation: "reroll",
 				cascade: "truncate",
@@ -414,32 +457,28 @@ function routedConfig(base, route) {
 		...route.reasoningEffort === void 0 ? {} : { reasoningEffort: route.reasoningEffort }
 	};
 }
-function routedHeader(base, route, system) {
+function routedHeader(base, route) {
 	const config = routedConfig(base.config, route);
 	return {
 		...base.config.provider !== config.provider || base.config.model !== config.model || base.config.reasoningEffort !== config.reasoningEffort ? (({ adapterDefaults: _historicalDefaults, ...withoutHistoricalDefaults }) => withoutHistoricalDefaults)(base) : base,
-		config,
-		...system === void 0 ? {} : { system }
+		config
 	};
 }
 function sourceHeader(row, events, route) {
 	const event = sourceEvent(row, events);
 	if (event?.type !== "request/header") return void 0;
 	const base = event.data.header;
-	if (route === void 0) return base.system === row.text ? base : {
-		...base,
-		system: row.text
-	};
-	const routed = routedHeader(base, route, row.text);
+	if (route === void 0) return base;
+	const routed = routedHeader(base, route);
 	return routed === base ? base : routed;
 }
-function sourceLatestHeader(events, route, fallbackSystem) {
+function sourceLatestHeader(events, route) {
 	const lastEvent = events.findLast((event) => event.type === "request/header");
-	if (lastEvent !== void 0) return routedHeader(lastEvent.data.header, route, fallbackSystem);
+	if (lastEvent !== void 0) return routedHeader(lastEvent.data.header, route);
 	return routedHeader({ config: {
 		provider: route.provider,
 		model: route.model
-	} }, route, fallbackSystem);
+	} }, route);
 }
 function sourceLatestContext(events, route) {
 	const lastEvent = events.findLast((event) => event.type === "request/context");
@@ -570,6 +609,7 @@ function groupForkRowsToTurns(rows, route, events) {
 						...source.data.message,
 						content
 					},
+					...source.data.stream === void 0 ? {} : { assistantStream: source.data.stream },
 					...source.data.usage === void 0 ? {} : { assistantUsage: source.data.usage },
 					...source.data.interrupted === void 0 ? {} : { assistantInterrupted: source.data.interrupted }
 				});
@@ -636,18 +676,19 @@ function groupForkRowsToTurns(rows, route, events) {
 			pendingAssistantRows.push(row);
 		} else if (row.kind === "system") {
 			flushAssistant(current);
-			const header = sourceHeader(row, events, route) ?? {
-				config: routedConfig({
-					provider: route.provider,
-					model: route.model
-				}, route),
-				system: row.text
-			};
+			const header = sourceHeader(row, events, route) ?? { config: routedConfig({
+				provider: route.provider,
+				model: route.model
+			}, route) };
 			const context = sourceLatestContext(events, route);
 			current.items.push({
 				kind: "header",
 				header,
 				...context === void 0 ? {} : { context }
+			});
+			current.items.push({
+				kind: "system",
+				system: createSystemMessage(row.text, "dsh-message-edit")
 			});
 		} else if (row.kind === "context.inject") {
 			flushAssistant(current);
@@ -728,8 +769,8 @@ function planOperation(operation, events, fallback, preferred) {
 	const route = preferred ?? ("route" in operation ? operation.route : void 0);
 	switch (operation.action) {
 		case "edit": return editPlan(operation, turns, events, fallback, route);
-		case "reroll": return rerollPlan(operation.sessionId, turns);
-		case "retry": return retryPlan(operation.sessionId, operation.turn, operation.cascade, turns);
+		case "reroll": return rerollPlan(operation.sessionId, turns, events);
+		case "retry": return retryPlan(operation.sessionId, operation.turn, operation.cascade, turns, events);
 		case "fork": return forkPlan(operation, events, fallback, route);
 	}
 }
@@ -755,6 +796,7 @@ function agentOptions(events, fallback, preferred) {
 	return {
 		provider: route.provider,
 		model: route.model,
+		...route.reasoningEffort === void 0 ? {} : { reasoningEffort: route.reasoningEffort },
 		...maxTokens === void 0 ? {} : { maxTokens }
 	};
 }
@@ -831,7 +873,7 @@ function appendManualTurn(events, manual, emittedCallIds) {
 		stepOpen = false;
 		pendingCalls.clear();
 	};
-	const openAssistantStep = (assistant, usage, interrupted) => {
+	const openAssistantStep = (assistant, usage, interrupted, stream) => {
 		closeStep();
 		appendLogSeedEvent(events, "step/start", {
 			turn,
@@ -842,12 +884,10 @@ function appendManualTurn(events, manual, emittedCallIds) {
 			turn,
 			step,
 			message: assistant,
+			stream: stream ?? [],
 			...usage === void 0 ? {} : { usage },
 			...interrupted === void 0 ? {} : { interrupted }
-		}, {
-			surfaceOp: "append",
-			sourceEventSeqs: []
-		});
+		}, { surfaceOp: "append" });
 		for (const block of assistant.content) {
 			if (block.type !== "tool-call") continue;
 			if (!emittedCallIds.has(block.id)) {
@@ -871,10 +911,23 @@ function appendManualTurn(events, manual, emittedCallIds) {
 			reason: item.headerReason ?? (events.some((e) => e.type === "request/header") ? "change" : "initial")
 		});
 		if (item.context !== void 0) appendLogSeedEvent(events, "request/context", item.context);
+	} else if (item.kind === "system" && item.system !== void 0) {
+		closeStep();
+		appendLogSeedEvent(events, "step/start", {
+			turn,
+			step
+		});
+		stepOpen = true;
+		appendSurfaceSeedEvent(events, "system/message", {
+			turn,
+			step,
+			message: item.system
+		}, { surfaceOp: "append" });
+		closeStep();
 	} else if (item.kind === "user" && item.user !== void 0) {
 		closeStep();
 		appendSurfaceSeedEvent(events, "user/message", item.user, { surfaceOp: "append" });
-	} else if (item.kind === "assistant" && item.assistant !== void 0) openAssistantStep(item.assistant, item.assistantUsage, item.assistantInterrupted);
+	} else if (item.kind === "assistant" && item.assistant !== void 0) openAssistantStep(item.assistant, item.assistantUsage, item.assistantInterrupted, item.assistantStream);
 	else if (item.kind === "tool.result" && item.toolResult !== void 0) {
 		let toolResult = item.toolResult;
 		let callId = toolResult.source.callId;
@@ -897,7 +950,7 @@ function appendManualTurn(events, manual, emittedCallIds) {
 			}
 		}
 		if (!stepOpen || !pendingCalls.has(callId)) {
-			if (!emittedCallIds.has(callId) && item.toolResultFallbackAssistant !== void 0) openAssistantStep(item.toolResultFallbackAssistant);
+			if (!emittedCallIds.has(callId) && item.toolResultFallbackAssistant !== void 0) openAssistantStep(item.toolResultFallbackAssistant, void 0, void 0, item.assistantStream);
 			else {
 				if (!stepOpen) {
 					appendLogSeedEvent(events, "step/start", {
@@ -928,15 +981,11 @@ function appendManualTurn(events, manual, emittedCallIds) {
 }
 function versionSeed(source, plan) {
 	const events = inheritedSeed(source, plan.boundary);
-	const inheritedLength = events.length;
 	const emittedCallIds = /* @__PURE__ */ new Set();
 	for (const event of events) if (event.type === "tool/call" && typeof event.data?.callId === "string") emittedCallIds.add(event.data.callId);
 	appendLogSeedEvent(events, "message-edit/version", plan.version, true);
 	for (const manual of plan.manualTurns) appendManualTurn(events, manual, emittedCallIds);
-	return {
-		events,
-		inheritedLength
-	};
+	return events;
 }
 function presetIdFromEvents(events, fallback) {
 	for (let index = events.length - 1; index >= 0; index -= 1) {
@@ -999,7 +1048,7 @@ function resolveSourceTitle(ctx, source, proposedTitle) {
 }
 async function createVersionAgent(ctx, source, childId, plan, options, route, title, cwd, presetOverride) {
 	const seed = versionSeed(source, plan);
-	if (title !== void 0 && (plan.boundary === -1 || plan.version.effect.operation === "fork")) appendLogSeedEvent(seed.events, "session/title", { title });
+	if (title !== void 0 && (plan.boundary === -1 || plan.version.effect.operation === "fork")) appendLogSeedEvent(seed, "session/title", { title });
 	const presets = agentPresetService(ctx);
 	const presetId = presetOverride ?? sessionPreset(source);
 	const selection = modelSelectionOf(route);
@@ -1019,14 +1068,13 @@ async function createVersionAgent(ctx, source, childId, plan, options, route, ti
 	const childCwd = cwd ?? source.header.cwd;
 	const child = await ctx.agents.create({
 		sessionId: childId,
-		seed: seed.events,
+		seed,
 		meta: {
 			...childCwd === void 0 ? {} : { cwd: childCwd },
 			parentSession: source.id,
-			isSeeded: seed.inheritedLength > 0,
+			isSeeded: false,
 			...agentPreset === void 0 ? {} : { agentPreset }
 		},
-		...seed.inheritedLength > 0 ? { inheritedEventCount: seed.inheritedLength } : {},
 		agentOptions: options,
 		...setup === void 0 ? {} : { setup }
 	});
@@ -1181,6 +1229,10 @@ async function mapConcurrent(items, worker) {
 	await Promise.all(Array.from({ length: workers }, () => run()));
 	return results;
 }
+function isUnsupportedPersistedLogError(error) {
+	const message = error instanceof Error ? error.message : String(error);
+	return message.includes("unknown to this harness") && message.includes("not marked ignorable");
+}
 /** Full log and exact inherited cut: live borrow, persisted inspection, query fallback. */
 async function readSessionLog(ctx, sessionId) {
 	const live = ctx.sessions.get(sessionId);
@@ -1189,7 +1241,18 @@ async function readSessionLog(ctx, sessionId) {
 		inheritedEventCount: Number(live.inheritedEventCount ?? 0)
 	};
 	const persistence = ctx.get("sessionPersistence");
-	if (persistence !== void 0) {
+	if (typeof persistence?.open === "function") {
+		const handle = await persistence.open(sessionId, "read");
+		try {
+			return {
+				events: (await handle.read()).events,
+				inheritedEventCount: Number(handle.inheritedEventCount ?? 0)
+			};
+		} finally {
+			await handle.close();
+		}
+	}
+	if (typeof persistence?.inspect === "function") {
 		const inspected = await persistence.inspect(sessionId);
 		return {
 			events: inspected.events,
@@ -1207,22 +1270,42 @@ async function timeline(ctx, sessionId) {
 	const rootId = targetTrace.complete ? targetTrace.root.header.id : targetTrace.ancestors.at(-1)?.header.id ?? sessionId;
 	const rootTrace = rootId === sessionId ? targetTrace : await ctx.sessionQuery.traceSession(rootId);
 	const lineage = flattenLineage(rootTrace.target, rootTrace.descendants);
-	const logs = await mapConcurrent(lineage, async ({ record }) => {
-		if (record.header.id === sessionId) return readSessionLog(ctx, sessionId);
-		if (record.header.parentSession === void 0) return {
-			events: [],
-			inheritedEventCount: 0
-		};
-		return readSessionLog(ctx, record.header.id);
+	const loadedLogs = await mapConcurrent(lineage, async ({ record }) => {
+		try {
+			if (record.header.id === sessionId) return await readSessionLog(ctx, sessionId);
+			if (record.header.parentSession === void 0) return {
+				events: [],
+				inheritedEventCount: 0
+			};
+			return await readSessionLog(ctx, record.header.id);
+		} catch (error) {
+			if (record.header.id !== sessionId && isUnsupportedPersistedLogError(error)) return void 0;
+			throw error;
+		}
 	});
-	const recordsById = new Map(lineage.map(({ record }) => [record.header.id, record]));
+	const invalidIds = /* @__PURE__ */ new Set();
+	for (let index = 0; index < lineage.length; index += 1) {
+		const record = lineage[index].record;
+		if (loadedLogs[index] === void 0 || record.header.parentSession !== void 0 && invalidIds.has(record.header.parentSession)) invalidIds.add(record.header.id);
+	}
+	const usable = lineage.flatMap(({ record, depth }, index) => invalidIds.has(record.header.id) ? [] : [{
+		record,
+		depth,
+		log: loadedLogs[index]
+	}]);
+	const usableLineage = usable.map(({ record, depth }) => ({
+		record,
+		depth
+	}));
+	const logs = usable.map(({ log }) => log);
+	const recordsById = new Map(usableLineage.map(({ record }) => [record.header.id, record]));
 	const currentPath = /* @__PURE__ */ new Set();
 	let pathId = sessionId;
 	while (pathId !== void 0 && !currentPath.has(pathId)) {
 		currentPath.add(pathId);
 		pathId = recordsById.get(pathId)?.header.parentSession;
 	}
-	const versions = lineage.map(({ record, depth }, index) => {
+	const versions = usableLineage.map(({ record, depth }, index) => {
 		const log = logs[index] ?? {
 			events: [],
 			inheritedEventCount: 0
@@ -1271,7 +1354,7 @@ async function timeline(ctx, sessionId) {
 	const currentLog = logs[currentIndex]?.events;
 	if (currentIndex < 0 || currentLog === void 0) throw new Error("当前版本不在版本树中。");
 	const turns = closedTurns(currentLog);
-	const currentRecord = lineage[currentIndex]?.record;
+	const currentRecord = usableLineage[currentIndex]?.record;
 	const currentPreset = presetIdFromEvents(currentLog, (currentRecord?.header)?.agentPreset);
 	return {
 		sessionId,
@@ -1452,4 +1535,4 @@ function apply(ctx) {
 	}), "message-edit: HTTP route");
 }
 //#endregion
-export { MESSAGE_EDIT_PATH, MESSAGE_EDIT_VERSION_SCHEMA, MESSAGE_EDIT_VIEW_ORDER, apply, inject, name };
+export { MESSAGE_EDIT_PATH, MESSAGE_EDIT_VERSION_SCHEMA, MESSAGE_EDIT_VIEW_ORDER, apply, inject, name, retryTurnForEvent };

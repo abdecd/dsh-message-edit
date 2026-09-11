@@ -20,14 +20,17 @@ import type {
   SessionLineageNode,
   SessionRecord,
 } from '@deepseek-ai/dsh-session-query'
-import type {
-  AssistantMessage,
-  ToolCallId,
-  ContentBlock,
-  MessageId,
-  ReasoningEffortId,
-  ToolResultMessage,
-  UserMessage,
+import {
+  createSystemMessage,
+  type AssistantMessage,
+  type AssistantStreamRecord,
+  type ContentBlock,
+  type MessageId,
+  type ReasoningEffortId,
+  type SystemMessage,
+  type ToolCallId,
+  type ToolResultMessage,
+  type UserMessage,
 } from '@deepseek-ai/dsh-llm'
 import type { Workspace, WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import {
@@ -56,6 +59,7 @@ export {
   MESSAGE_EDIT_PATH,
   MESSAGE_EDIT_VERSION_SCHEMA,
   MESSAGE_EDIT_VIEW_ORDER,
+  retryTurnForEvent,
 } from './shared.ts'
 export type {
   AgentPresetOption,
@@ -114,12 +118,14 @@ interface ClosedTurn {
 }
 
 interface ManualTurnItem {
-  kind: 'header' | 'user' | 'assistant' | 'tool.result'
+  kind: 'header' | 'user' | 'assistant' | 'tool.result' | 'system'
   header?: EpochHeader
   headerReason?: RequestHeaderReason
   context?: RequestContext
+  system?: SystemMessage
   user?: UserMessage
   assistant?: AssistantMessage
+  assistantStream?: AssistantStreamRecord[]
   assistantUsage?: AssistantEvent['data']['usage']
   assistantInterrupted?: true
   toolResult?: ToolResultMessage
@@ -239,6 +245,7 @@ function closedTurns(events: readonly SessionEvent[], includeOpen = true): Close
     }
     if (current === undefined) {
       if (
+        event.type === 'system/message' ||
         event.type === 'user/message' ||
         event.type === 'assistant/message' ||
         event.type === 'tool/result' ||
@@ -271,6 +278,10 @@ function closedTurns(events: readonly SessionEvent[], includeOpen = true): Close
       continue
     }
     if (event.type === 'tool/result' && (event.data.turn === undefined || event.data.turn === current.turn)) {
+      current.events.push(event)
+      continue
+    }
+    if (event.type === 'system/message' && (event.data.turn === undefined || event.data.turn === current.turn)) {
       current.events.push(event)
       continue
     }
@@ -307,15 +318,29 @@ function editableMessages(turns: readonly ClosedTurn[]): EditableMessageBlock[] 
   for (const turn of turns) {
     // Process events in exact chronological sequence (by event sequence / time)
     for (const event of turn.events) {
-      if (event.type === 'request/header') {
-        if (event.data.header?.system) {
+      if (event.type === 'system/message') {
+        const text = event.data.message.content.find(b => b.type === 'text')?.text ?? ''
+        if (text) {
           result.push({
             key: `${String(event.seq)}:sys`,
             turn: turn.turn,
             eventSeq: event.seq,
             blockIndex: 0,
             kind: 'system',
-            text: event.data.header.system,
+            text,
+            time: event.time,
+          })
+        }
+      } else if (event.type === 'request/header') {
+        const legacySystem = (event.data.header as { system?: string } | undefined)?.system
+        if (legacySystem) {
+          result.push({
+            key: `${String(event.seq)}:sys`,
+            turn: turn.turn,
+            eventSeq: event.seq,
+            blockIndex: 0,
+            kind: 'system',
+            text: legacySystem,
             time: event.time,
           })
         }
@@ -391,6 +416,24 @@ function downstreamUsers(turns: readonly ClosedTurn[], start: number): UserMessa
     : [cloneUser(turn.user.data)])
 }
 
+/**
+ * Agent inbox inserts are persisted immediately before a normal turn starts.
+ * They are part of the source prefix, but a seeded child will consume them on
+ * startup. Branch operations queue their replacement explicitly, so inheriting
+ * that insert would run the original input once and the replacement again.
+ */
+function replayBoundary(events: readonly SessionEvent[], turn: ClosedTurn): number {
+  const userId = turn.user?.data.id
+  if (typeof userId !== 'string') return turn.startSeq - 1
+  const pending = events.findLast(event => {
+    if ((event as any).type !== 'agent/inbox/spliced' || event.seq >= turn.startSeq) return false
+    const data = (event as any).data
+    if (data?.target !== 'next-turn' || !Array.isArray(data.inserted)) return false
+    return data.inserted.some((message: any) => message?.id === userId)
+  })
+  return pending?.seq === undefined ? turn.startSeq - 1 : pending.seq - 1
+}
+
 function assistantReplacement(event: AssistantEvent, blockIndex: number, text: string): AssistantMessage {
   const replaced = replaceTextBlock(event.data.message.content, blockIndex, text)
     .filter(block => block.type === 'text' || block.type === 'reasoning' || block.type === 'tool-call')
@@ -428,7 +471,7 @@ function editPlan(
     const edited = cloneUser(event.data, replaceTextBlock(event.data.content, operation.blockIndex, operation.text))
     const later = operation.cascade === 'preserve' ? downstreamUsers(turns, turnIndex + 1) : []
     return {
-      boundary: turn.startSeq - 1,
+      boundary: replayBoundary(events, turn),
       version: pairVersionEffect(operation.sessionId, {
         operation: 'edit',
         cascade: operation.cascade,
@@ -444,12 +487,14 @@ function editPlan(
     }
   }
 
-  if (event.type === 'request/header') {
-    const beforeText = event.data.header?.system ?? ''
+  if (event.type === 'system/message' || event.type === 'request/header') {
+    const beforeText = event.type === 'system/message'
+      ? (event.data.message.content.find(b => b.type === 'text')?.text ?? '')
+      : ((event.data.header as { system?: string } | undefined)?.system ?? '')
     const later = operation.cascade === 'preserve' ? downstreamUsers(turns, turnIndex + 1) : []
     const turnUser = turn.user ? [cloneUser(turn.user.data)] : []
     return {
-      boundary: turn.startSeq - 1,
+      boundary: replayBoundary(events, turn),
       version: pairVersionEffect(operation.sessionId, {
         operation: 'edit',
         cascade: operation.cascade,
@@ -493,10 +538,11 @@ function editPlan(
   manualTurnItems.push({
     kind: 'assistant',
     assistant: assistantReplacement(event, operation.blockIndex, operation.text),
+    ...(event.data.stream === undefined ? {} : { assistantStream: event.data.stream }),
   })
 
   return {
-    boundary: turn.startSeq - 1,
+    boundary: replayBoundary(events, turn),
     version: pairVersionEffect(operation.sessionId, {
       operation: 'edit',
       cascade: operation.cascade,
@@ -522,12 +568,13 @@ function retryPlan(
   turnNumber: number,
   cascade: CascadePolicy,
   turns: readonly ClosedTurn[],
+  events: readonly SessionEvent[],
 ): OperationPlan {
   const turnIndex = turns.findIndex(turn => turn.turn === turnNumber)
   const turn = turns[turnIndex]
   if (turn?.user === undefined) throw new Error('所选回合没有可重放的用户输入。')
   return {
-    boundary: turn.startSeq - 1,
+    boundary: replayBoundary(events, turn),
     version: pairVersionEffect(sessionId, {
       operation: 'retry',
       cascade,
@@ -541,14 +588,18 @@ function retryPlan(
   }
 }
 
-function rerollPlan(sessionId: string, turns: readonly ClosedTurn[]): OperationPlan {
+function rerollPlan(
+  sessionId: string,
+  turns: readonly ClosedTurn[],
+  events: readonly SessionEvent[],
+): OperationPlan {
   for (let index = turns.length - 1; index >= 0; index -= 1) {
     const turn = turns[index]
     if (turn?.user === undefined) continue
     const target = turn.assistants.findLast(event => event.data.message.content.some(isTextualBlock))
     if (target === undefined) continue
     return {
-      boundary: turn.startSeq - 1,
+      boundary: replayBoundary(events, turn),
       version: pairVersionEffect(sessionId, {
         operation: 'reroll',
         cascade: 'truncate',
@@ -624,7 +675,6 @@ function routedConfig(
 function routedHeader(
   base: EpochHeader,
   route: ModelRoute,
-  system?: string,
 ): EpochHeader {
   const config = routedConfig(base.config, route)
   const routeChanged = base.config.provider !== config.provider
@@ -638,7 +688,6 @@ function routedHeader(
   return {
     ...header,
     config,
-    ...system === undefined ? {} : { system },
   }
 }
 
@@ -650,19 +699,18 @@ function sourceHeader(
   const event = sourceEvent(row, events)
   if (event?.type !== 'request/header') return undefined
   const base = event.data.header
-  if (route === undefined) return base.system === row.text ? base : { ...base, system: row.text }
-  const routed = routedHeader(base, route, row.text)
+  if (route === undefined) return base
+  const routed = routedHeader(base, route)
   return routed === base ? base : routed
 }
 
 function sourceLatestHeader(
   events: readonly SessionEvent[],
   route: ModelRoute,
-  fallbackSystem?: string,
 ): EpochHeader {
   const lastEvent = events.findLast((event): event is SessionEvent<'request/header'> => event.type === 'request/header')
-  if (lastEvent !== undefined) return routedHeader(lastEvent.data.header, route, fallbackSystem)
-  return routedHeader({ config: { provider: route.provider, model: route.model } }, route, fallbackSystem)
+  if (lastEvent !== undefined) return routedHeader(lastEvent.data.header, route)
+  return routedHeader({ config: { provider: route.provider, model: route.model } }, route)
 }
 
 function sourceLatestContext(
@@ -811,6 +859,7 @@ function groupForkRowsToTurns(
         turn.items.push({
           kind: 'assistant',
           assistant: unchanged ? source.data.message : { ...source.data.message, content } as AssistantMessage,
+          ...(source.data.stream === undefined ? {} : { assistantStream: source.data.stream }),
           ...(source.data.usage === undefined ? {} : { assistantUsage: source.data.usage }),
           ...(source.data.interrupted === undefined ? {} : { assistantInterrupted: source.data.interrupted }),
         })
@@ -866,13 +915,16 @@ function groupForkRowsToTurns(
       flushAssistant(current)
       const header = sourceHeader(row, events, route) ?? {
         config: routedConfig({ provider: route.provider, model: route.model }, route),
-        system: row.text,
       }
       const context = sourceLatestContext(events, route)
       current.items.push({
         kind: 'header',
         header,
         ...context === undefined ? {} : { context },
+      })
+      current.items.push({
+        kind: 'system',
+        system: createSystemMessage(row.text, 'dsh-message-edit'),
       })
     } else if (row.kind === 'context.inject') {
       flushAssistant(current)
@@ -971,9 +1023,9 @@ function planOperation(
     case 'edit':
       return editPlan(operation, turns, events, fallback, route)
     case 'reroll':
-      return rerollPlan(operation.sessionId, turns)
+      return rerollPlan(operation.sessionId, turns, events)
     case 'retry':
-      return retryPlan(operation.sessionId, operation.turn, operation.cascade, turns)
+      return retryPlan(operation.sessionId, operation.turn, operation.cascade, turns, events)
     case 'fork':
       return forkPlan(operation, events, fallback, route)
   }
@@ -1017,6 +1069,9 @@ function agentOptions(
   return {
     provider: route.provider,
     model: route.model,
+    ...route.reasoningEffort === undefined
+      ? {}
+      : { reasoningEffort: route.reasoningEffort as ReasoningEffortId },
     ...maxTokens === undefined ? {} : { maxTokens },
   }
 }
@@ -1101,7 +1156,7 @@ function appendSurfaceSeedEvent<T extends SurfaceEventType>(
     data,
     surfaceOp: intent.surfaceOp,
     ...intent.sourceEventSeqs === undefined ? {} : { sourceEventSeqs: intent.sourceEventSeqs },
-  } as SessionEvent<T>)
+  } as unknown as SessionEvent<T>)
 }
 
 function appendManualTurn(
@@ -1128,6 +1183,7 @@ function appendManualTurn(
     assistant: AssistantMessage,
     usage?: AssistantEvent['data']['usage'],
     interrupted?: true,
+    stream?: AssistantStreamRecord[],
   ): void => {
     closeStep()
     appendLogSeedEvent(events, 'step/start', { turn, step })
@@ -1136,11 +1192,11 @@ function appendManualTurn(
       turn,
       step,
       message: assistant,
+      stream: stream ?? [],
       ...(usage === undefined ? {} : { usage }),
       ...(interrupted === undefined ? {} : { interrupted }),
     }, {
       surfaceOp: 'append',
-      sourceEventSeqs: [],
     })
 
     for (const block of assistant.content) {
@@ -1173,11 +1229,23 @@ function appendManualTurn(
       if (item.context !== undefined) {
         appendLogSeedEvent(events, 'request/context', item.context)
       }
+    } else if (item.kind === 'system' && item.system !== undefined) {
+      closeStep()
+      appendLogSeedEvent(events, 'step/start', { turn, step })
+      stepOpen = true
+      appendSurfaceSeedEvent(events, 'system/message', {
+        turn,
+        step,
+        message: item.system,
+      }, {
+        surfaceOp: 'append',
+      })
+      closeStep()
     } else if (item.kind === 'user' && item.user !== undefined) {
       closeStep()
       appendSurfaceSeedEvent(events, 'user/message', item.user, { surfaceOp: 'append' })
     } else if (item.kind === 'assistant' && item.assistant !== undefined) {
-      openAssistantStep(item.assistant, item.assistantUsage, item.assistantInterrupted)
+      openAssistantStep(item.assistant, item.assistantUsage, item.assistantInterrupted, item.assistantStream)
     } else if (item.kind === 'tool.result' && item.toolResult !== undefined) {
       let toolResult = item.toolResult
       let callId = toolResult.source.callId
@@ -1199,7 +1267,7 @@ function appendManualTurn(
 
       if (!stepOpen || !pendingCalls.has(callId)) {
         if (!emittedCallIds.has(callId) && item.toolResultFallbackAssistant !== undefined) {
-          openAssistantStep(item.toolResultFallbackAssistant)
+          openAssistantStep(item.toolResultFallbackAssistant, undefined, undefined, item.assistantStream)
         } else {
           if (!stepOpen) {
             appendLogSeedEvent(events, 'step/start', { turn, step })
@@ -1229,12 +1297,8 @@ function appendManualTurn(
   appendLogSeedEvent(events, 'turn/end', { turn, reason: { kind: 'completed' } })
 }
 
-function versionSeed(source: Session, plan: OperationPlan): {
-  events: SessionEvent[]
-  inheritedLength: number
-} {
+function versionSeed(source: Session, plan: OperationPlan): SessionEvent[] {
   const events = inheritedSeed(source, plan.boundary)
-  const inheritedLength = events.length
   const emittedCallIds = new Set<string>()
   for (const event of events) {
     if (event.type === 'tool/call' && typeof (event.data as any)?.callId === 'string') {
@@ -1245,7 +1309,7 @@ function versionSeed(source: Session, plan: OperationPlan): {
      provenance record instead of refusing the whole log (SessionEvent.ignorable). */
   appendLogSeedEvent(events, 'message-edit/version', plan.version, true)
   for (const manual of plan.manualTurns) appendManualTurn(events, manual, emittedCallIds)
-  return { events, inheritedLength }
+  return events
 }
 
 function presetIdFromEvents(
@@ -1346,7 +1410,7 @@ async function createVersionAgent(
 ): Promise<AgentHandle> {
   const seed = versionSeed(source, plan)
   if (title !== undefined && (plan.boundary === -1 || plan.version.effect.operation === 'fork')) {
-    appendLogSeedEvent(seed.events, 'session/title', { title } as any)
+    appendLogSeedEvent(seed, 'session/title', { title } as any)
   }
   const presets = agentPresetService(ctx)
   const presetId = presetOverride ?? sessionPreset(source)
@@ -1369,16 +1433,20 @@ async function createVersionAgent(
     setup = (agentCtx) => { installModelSelection(agentCtx, selection) }
   }
   const childCwd = cwd ?? source.header.cwd
+  /* RC2 Session.append() cannot set the envelope-level ignorable marker on
+     plugin-owned events. Construct the complete branch snapshot instead: the
+     planned version record already carries ignorable:true, and an unseeded
+     header lets Session accept the full snapshot without the seeded-prefix
+     equality check. The parentSession field still preserves the lineage. */
   const child = await ctx.agents.create({
     sessionId: childId,
-    seed: seed.events,
+    seed,
     meta: {
       ...childCwd === undefined ? {} : { cwd: childCwd },
       parentSession: source.id,
-      isSeeded: seed.inheritedLength > 0,
+      isSeeded: false,
       ...agentPreset === undefined ? {} : { agentPreset },
     },
-    ...seed.inheritedLength > 0 ? { inheritedEventCount: seed.inheritedLength } : {},
     agentOptions: options,
     ...setup === undefined ? {} : { setup },
   } as any)
@@ -1567,14 +1635,19 @@ function flattenLineage(
 /** Minimal read face of the optional persistence service; borrowed events are
  * consumed synchronously inside one timeline projection. */
 interface PersistenceReaderLike {
-  inspect(sessionId: SessionId, signal?: AbortSignal): Promise<{
+  /** Legacy pre-RC2 reader. */
+  inspect?: (sessionId: SessionId, signal?: AbortSignal) => Promise<{
     readonly meta?: SessionRecord['header']
     readonly inheritedEventCount?: number
     readonly events: readonly SessionEvent[]
   }>
-  readFrom(sessionId: SessionId, fromSeq: number, signal?: AbortSignal): Promise<{
-    readonly events: readonly SessionEvent[]
+  /** RC2 durable handle API; read() returns the complete stored log. */
+  open?: (sessionId: SessionId, access: 'read', options?: { signal?: AbortSignal }) => Promise<{
     readonly inheritedEventCount?: number
+    read(offset?: number, length?: number, options?: { signal?: AbortSignal }): Promise<{
+      readonly events: readonly SessionEvent[]
+    }>
+    close(): Promise<void>
   }>
 }
 
@@ -1605,6 +1678,11 @@ interface SessionLogData {
   readonly inheritedEventCount: number
 }
 
+function isUnsupportedPersistedLogError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.includes('unknown to this harness') && message.includes('not marked ignorable')
+}
+
 /** Full log and exact inherited cut: live borrow, persisted inspection, query fallback. */
 async function readSessionLog(ctx: Context, sessionId: SessionId): Promise<SessionLogData> {
   const live = ctx.sessions.get(sessionId)
@@ -1615,7 +1693,19 @@ async function readSessionLog(ctx: Context, sessionId: SessionId): Promise<Sessi
     }
   }
   const persistence = ctx.get('sessionPersistence') as PersistenceReaderLike | undefined
-  if (persistence !== undefined) {
+  if (typeof persistence?.open === 'function') {
+    const handle = await persistence.open(sessionId, 'read')
+    try {
+      const read = await handle.read()
+      return {
+        events: read.events,
+        inheritedEventCount: Number(handle.inheritedEventCount ?? 0),
+      }
+    } finally {
+      await handle.close()
+    }
+  }
+  if (typeof persistence?.inspect === 'function') {
     const inspected = await persistence.inspect(sessionId)
     return {
       events: inspected.events,
@@ -1636,12 +1726,33 @@ async function timeline(ctx: Context, sessionId: SessionId): Promise<MessageEdit
     : targetTrace.ancestors.at(-1)?.header.id ?? sessionId
   const rootTrace = rootId === sessionId ? targetTrace : await ctx.sessionQuery.traceSession(rootId)
   const lineage = flattenLineage(rootTrace.target, rootTrace.descendants)
-  const logs = await mapConcurrent(lineage, async ({ record }): Promise<SessionLogData> => {
-    if (record.header.id === sessionId) return readSessionLog(ctx, sessionId)
-    if (record.header.parentSession === undefined) return { events: [], inheritedEventCount: 0 }
-    return readSessionLog(ctx, record.header.id)
+  const loadedLogs = await mapConcurrent(lineage, async ({ record }): Promise<SessionLogData | undefined> => {
+    try {
+      if (record.header.id === sessionId) return await readSessionLog(ctx, sessionId)
+      if (record.header.parentSession === undefined) return { events: [], inheritedEventCount: 0 }
+      return await readSessionLog(ctx, record.header.id)
+    } catch (error) {
+      // Older plugin builds wrote message-edit/version without RC2's required
+      // ignorable envelope marker. Do not let one stale descendant hide the
+      // usable current branch; a failure on the requested session still fails
+      // loudly so the UI can show the real problem.
+      if (record.header.id !== sessionId && isUnsupportedPersistedLogError(error)) return undefined
+      throw error
+    }
   })
-  const recordsById = new Map(lineage.map(({ record }) => [record.header.id, record]))
+  const invalidIds = new Set<SessionId>()
+  for (let index = 0; index < lineage.length; index += 1) {
+    const record = lineage[index]!.record
+    if (loadedLogs[index] === undefined || record.header.parentSession !== undefined && invalidIds.has(record.header.parentSession)) {
+      invalidIds.add(record.header.id)
+    }
+  }
+  const usable = lineage.flatMap(({ record, depth }, index) => invalidIds.has(record.header.id)
+    ? []
+    : [{ record, depth, log: loadedLogs[index]! }])
+  const usableLineage = usable.map(({ record, depth }) => ({ record, depth }))
+  const logs = usable.map(({ log }) => log)
+  const recordsById = new Map(usableLineage.map(({ record }) => [record.header.id, record]))
   const currentPath = new Set<SessionId>()
   let pathId: SessionId | undefined = sessionId
   while (pathId !== undefined && !currentPath.has(pathId)) {
@@ -1649,7 +1760,7 @@ async function timeline(ctx: Context, sessionId: SessionId): Promise<MessageEdit
     pathId = recordsById.get(pathId)?.header.parentSession
   }
 
-  const versions: VersionSummary[] = lineage.map(({ record, depth }, index) => {
+  const versions: VersionSummary[] = usableLineage.map(({ record, depth }, index) => {
     const log = logs[index] ?? { events: [], inheritedEventCount: 0 }
     const version = ownVersionEvent(record.header, log.events, log.inheritedEventCount)
     return {
@@ -1699,7 +1810,7 @@ async function timeline(ctx: Context, sessionId: SessionId): Promise<MessageEdit
   const currentLog = logs[currentIndex]?.events
   if (currentIndex < 0 || currentLog === undefined) throw new Error('当前版本不在版本树中。')
   const turns = closedTurns(currentLog)
-  const currentRecord = lineage[currentIndex]?.record
+  const currentRecord = usableLineage[currentIndex]?.record
   const currentPreset = presetIdFromEvents(
     currentLog,
     (currentRecord?.header as { agentPreset?: unknown } | undefined)?.agentPreset,

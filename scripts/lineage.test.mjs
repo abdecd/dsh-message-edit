@@ -2,6 +2,111 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import * as messageEdit from '../index.mjs'
 
+test('retry resolves the durable event mapping rather than a rendered turn position', () => {
+  // A chat renderer may recycle a DOM seat showing turn 99, but an injected
+  // button bound to event 11 must retry the timeline's turn 1 instead.
+  const messages = [
+    { eventSeq: 11, kind: 'user', turn: 1 },
+    { eventSeq: 12, kind: 'user', turn: 99 },
+  ]
+  assert.equal(messageEdit.retryTurnForEvent(messages, 11), 1)
+  assert.equal(messageEdit.retryTurnForEvent(messages, 12), 99)
+  assert.equal(messageEdit.retryTurnForEvent(messages, 404), undefined)
+})
+
+test('retry does not inherit an already-pending inbox message', async () => {
+  const user = {
+    id: 'user-1',
+    role: 'user',
+    content: [{ type: 'text', text: 'hello' }],
+    source: { kind: 'user' },
+  }
+  const events = [
+    { type: 'agent/inbox/spliced', seq: 0, time: 1, data: { target: 'next-turn', start: 0, inserted: [user] } },
+    { type: 'turn/start', seq: 1, time: 2, data: { turn: 1 } },
+    { type: 'user/message', seq: 2, time: 3, data: user, surfaceOp: 'append' },
+    { type: 'request/header', seq: 3, time: 4, data: { header: { config: { provider: 'provider', model: 'model' } } } },
+    {
+      type: 'assistant/message', seq: 4, time: 5,
+      data: { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'old' }], source: { kind: 'model', provider: 'provider', model: 'model' } } },
+      surfaceOp: 'append',
+    },
+    { type: 'turn/end', seq: 5, time: 6, data: { turn: 1, reason: { kind: 'completed' } } },
+  ]
+  let routeHandler
+  let created
+  const followups = []
+  const sourceSession = {
+    id: 'source',
+    header: { id: 'source', version: 3, createdAt: 1, cwd: '/tmp' },
+    snapshotEvents: () => events,
+  }
+  const sourceAgent = {
+    session: sourceSession,
+    options: { provider: 'provider', model: 'model' },
+    runMaintenance: async fn => fn(sourceAgent),
+  }
+  const childSession = {
+    id: 'child',
+    header: { id: 'child', version: 3, createdAt: 2 },
+    events: [],
+    append(type, data) {
+      this.events.push({ type, data })
+    },
+    snapshotEvents() { return this.events },
+  }
+  const ctx = {
+    effect: fn => fn(),
+    webServer: { register: entry => { routeHandler = entry.handler } },
+    connection: { requestRejection: () => undefined },
+    agents: {
+      get: () => sourceAgent,
+      create: async options => {
+        created = options
+        return {
+          agent: {
+            session: childSession,
+            followup: message => followups.push(message),
+          },
+          dispose: async () => {},
+        }
+      },
+    },
+    sessions: { flush: async () => {} },
+    workspaceRegistry: { list: () => [] },
+    get: () => undefined,
+  }
+  messageEdit.apply(ctx)
+  const request = {
+    method: 'POST',
+    url: '/message-edit',
+    headers: { host: '127.0.0.1' },
+    on(event, listener) {
+      if (event === 'data') listener(Buffer.from(JSON.stringify({
+        action: 'retry', sessionId: 'source', turn: 1, cascade: 'truncate',
+        route: { provider: 'selected-provider', model: 'selected-model', reasoningEffort: 'high' },
+      })))
+      if (event === 'end') queueMicrotask(listener)
+    },
+  }
+  let status
+  let body
+  await routeHandler(request, {
+    writeHead: value => { status = value },
+    end: value => { body = JSON.parse(value) },
+  })
+  assert.equal(status, 200, JSON.stringify(body))
+  assert.deepEqual(created.agentOptions, {
+    provider: 'selected-provider', model: 'selected-model', reasoningEffort: 'high',
+  })
+  assert.ok(Array.isArray(created.seed))
+  assert.equal(created.seed.some(event => event.type === 'agent/inbox/spliced'), false)
+  assert.equal(created.seed.find(event => event.type === 'message-edit/version')?.ignorable, true)
+  assert.equal(followups.length, 1)
+  assert.equal(followups[0].content[0].text, 'hello')
+  assert.equal(childSession.events.length, 0)
+})
+
 test('timeline handles multi-generation lineage with inherited version events', async () => {
   const rootHeader = {
     id: 'session-root',
@@ -127,7 +232,19 @@ test('timeline handles multi-generation lineage with inherited version events', 
     workspaceRegistry: {
       list: () => [],
     },
-    get: () => undefined,
+    // RC2 exposes read-only SessionPersistence handles. The timeline must read
+    // complete seeded logs through this API rather than sessionQuery.readSession,
+    // which still reconstructs them with the snapshot-only constructor.
+    get: service => service === 'sessionPersistence' ? {
+      open: async sessionId => {
+        const item = store[sessionId]
+        return {
+          inheritedEventCount: item.inheritedEventCount,
+          read: async () => ({ events: item.events }),
+          close: async () => {},
+        }
+      },
+    } : undefined,
   }
 
   messageEdit.apply(ctx)

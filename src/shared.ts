@@ -88,6 +88,18 @@ export interface RetryableTurn {
   time: number
 }
 
+/** Resolve a retry target from its durable user-message event identity.
+ * Rendered chat turn attributes are intentionally excluded: they are view
+ * placement metadata and can change independently of the session timeline. */
+export function retryTurnForEvent(
+  messages: readonly Pick<EditableMessageBlock, 'eventSeq' | 'kind' | 'turn'>[],
+  eventSeq: number,
+): number | undefined {
+  const message = messages.find(candidate => candidate.eventSeq === eventSeq && candidate.kind === 'user')
+  if (message === undefined || !Number.isSafeInteger(message.turn) || message.turn < 0) return undefined
+  return message.turn
+}
+
 /** One session version in the complete known lineage tree. */
 export interface VersionSummary {
   sessionId: string

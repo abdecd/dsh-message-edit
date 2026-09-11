@@ -28,11 +28,16 @@ export function MessageEditHeader({
   const timeline = state.timeline
 
   return (
-    <InlineMessageEdit
-      key={timeline?.sessionId ?? 'none'}
-      messages={timeline?.messages ?? []}
-      edit={edit}
-      retry={retry}
-    />
+    <>
+      {state.error !== null && state.pending === null && (
+        <span role="alert" title={state.error}>操作失败：{state.error}</span>
+      )}
+      <InlineMessageEdit
+        key={timeline?.sessionId ?? 'none'}
+        messages={timeline?.messages ?? []}
+        edit={edit}
+        retry={retry}
+      />
+    </>
   )
 }

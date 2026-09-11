@@ -17,16 +17,18 @@ function source(initial) {
 }
 const timeline = { sessionId: 'source', messages: [], retryableTurns: [], versions: [], undoStack: [], redoSessionIds: [] }
 
-async function clientFixture(next) {
+async function clientFixture(next, options = {}) {
   const requests = []
   let loaded
   const externals = []
+  let publishChild = () => {}
   const sandbox = {
     window: { __ModuleLoader__: { load(value) { loaded = value } } },
     AbortController, setTimeout, clearTimeout, console,
-    fetch: async (url, options) => {
-      requests.push({ url, ...options })
-      return new Response(JSON.stringify(options.method === 'POST' ? { sessionId: 'child', queuedTurns: 1 } : timeline), { status: 200 })
+    fetch: async (url, request) => {
+      requests.push({ url, ...request })
+      if (request.method === 'POST') publishChild()
+      return new Response(JSON.stringify(request.method === 'POST' ? { sessionId: 'child', queuedTurns: 1 } : timeline), { status: 200 })
     },
   }
   vm.runInNewContext(await readFile(new URL('../client.js', import.meta.url), 'utf8'), sandbox)
@@ -34,32 +36,48 @@ async function clientFixture(next) {
   const plugin = loaded.factory(id => { externals.push(id); return require(id) })
   const eventSource = source({ revision: 0 })
   const sessionSource = source({ running: false })
-  const list = source({ byId: { source: {}, child: { parentId: 'source' } } })
+  const list = source({ byId: options.childInitiallyListed === false ? { source: {} } : { source: {}, child: { parentId: 'source' } } })
+  let childScheduled = false
+  publishChild = () => {
+    if (childScheduled || options.childPublishedAfterMs === undefined) return
+    childScheduled = true
+    setTimeout(() => list.set({ byId: { ...list.getSnapshot().byId, child: { parentId: 'source' } } }), options.childPublishedAfterMs)
+  }
   const projection = source({ next })
+  const binding = {
+    eventSource,
+    session: {
+      projections: { faceOf: () => projection },
+      getSnapshot: () => sessionSource.getSnapshot(),
+      subscribe: fn => sessionSource.subscribe(fn),
+    },
+  }
   const opened = []
   const entries = []
   const effects = []
   plugin.apply({
     sessions: {
       list,
-      binding: () => ({
-        eventSource,
-        session: {
-          projections: { faceOf: () => projection },
-          getSnapshot: () => sessionSource.getSnapshot(),
-          subscribe: fn => sessionSource.subscribe(fn),
-        },
-      }),
+      binding: () => binding,
+      refresh: async () => {},
       open: id => opened.push(id),
     },
     slots: { register: entry => entries.push(entry) },
     on() {},
+    get(name) {
+      if (name !== 'modelDirectories' || options.composerSelection === undefined) return undefined
+      return {
+        directoryFor: () => ({
+          store: { getSnapshot: () => ({ current: options.composerSelection }) },
+        }),
+      }
+    },
     effect(fn) { const dispose = fn(); effects.push(dispose); return async () => dispose() },
   })
   const face = entries[0].inject('source')
   assert.equal(entries[1].inject('source'), face)
   const release = face.acquire()
-  return { face, requests, eventSource, sessionSource, list, opened, externals, release, effects }
+  return { face, requests, eventSource, sessionSource, list, binding, opened, externals, release, effects }
 }
 const settle = () => new Promise(resolve => setTimeout(resolve, 220))
 
@@ -76,6 +94,43 @@ test('built client uses shared store and forwards rc.1 modelSelection.next', asy
   } finally { f.release() }
   assert.equal(f.eventSource.size, 0)
   assert.equal(f.list.size, 0)
+})
+
+test('retry forwards the composer selection before durable projection catches up', async () => {
+  const f = await clientFixture({ provider: 'history-provider', model: 'history-model', reasoningEffort: 'low' }, {
+    composerSelection: { provider: 'composer-provider', model: 'composer-model', reasoningEffort: 'high' },
+  })
+  try {
+    f.face.load()
+    await settle()
+    assert.equal(await f.face.retry(1, 'truncate'), true)
+    assert.deepEqual(JSON.parse(f.requests.find(r => r.method === 'POST').body).route, {
+      provider: 'composer-provider', model: 'composer-model', reasoningEffort: 'high',
+    })
+  } finally { f.release() }
+})
+
+test('retry waits for delayed session-list publication before reporting success', async () => {
+  const f = await clientFixture({ provider: 'provider', model: 'model' }, {
+    childInitiallyListed: false,
+    childPublishedAfterMs: 750,
+  })
+  try {
+    f.face.load()
+    await settle()
+    assert.equal(await f.face.retry(1, 'truncate'), true)
+    assert.deepEqual(f.opened, ['child'])
+  } finally { f.release() }
+})
+
+test('retry reports a visible failure when its child never reaches the session list', async () => {
+  const f = await clientFixture({ provider: 'provider', model: 'model' }, { childInitiallyListed: false })
+  try {
+    f.face.load()
+    await settle()
+    assert.equal(await f.face.retry(1, 'truncate'), false)
+    assert.match(f.face.hooks.messageEdit.getSnapshot().error, /新版本未进入会话列表/)
+  } finally { f.release() }
 })
 
 test('event-window revisions invalidate timeline and absent effort stays absent', async () => {
@@ -102,6 +157,21 @@ test('absent composer projection keeps historical-route fallback', async () => {
     await settle()
     assert.equal(await f.face.reroll(), true)
     assert.equal('route' in JSON.parse(f.requests.at(-1).body), false)
+  } finally { f.release() }
+})
+
+test('retry posts with historical-route fallback during a transient missing session binding', async () => {
+  const f = await clientFixture({ provider: 'provider', model: 'model' })
+  try {
+    f.face.load()
+    await settle()
+    f.binding.session = undefined
+    assert.equal(await f.face.retry(7, 'truncate'), true)
+    const request = f.requests.find(item => item.method === 'POST')
+    assert.deepEqual(JSON.parse(request.body), {
+      action: 'retry', sessionId: 'source', turn: 7, cascade: 'truncate',
+    })
+    assert.deepEqual(f.opened, ['child'])
   } finally { f.release() }
 })
 

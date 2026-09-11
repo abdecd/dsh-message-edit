@@ -31,6 +31,9 @@ export interface MessageEditState {
 /** Merge a burst of turn completions / node events into one refresh. */
 const REFRESH_DELAY_MS = 150
 
+/** Host-created versions arrive through the session-list stream asynchronously. */
+const NAVIGATION_WAIT_MS = 5_000
+
 /** Plain business face; the renderer binds the reserved source compartment. */
 export interface MessageEditFace {
   hooks: { messageEdit: ObservableSnapshot<MessageEditState> }
@@ -48,6 +51,28 @@ export interface MessageEditFace {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function modelRouteOf(value: unknown): ModelRoute | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
+  const provider = record['provider']
+  const model = record['model']
+  const reasoningEffort = record['reasoningEffort']
+  if (typeof provider !== 'string' || provider.length === 0) return undefined
+  if (typeof model !== 'string' || model.length === 0) return undefined
+  if (reasoningEffort !== undefined && (typeof reasoningEffort !== 'string' || reasoningEffort.length === 0)) return undefined
+  return {
+    provider,
+    model,
+    ...reasoningEffort === undefined ? {} : { reasoningEffort },
+  }
+}
+
+interface ModelDirectoryLike {
+  directoryFor?: (sessionId: SessionId) => {
+    store?: { getSnapshot?: () => { current?: unknown } }
+  } | undefined
 }
 
 function objectValue(value: unknown, label: string): Record<string, unknown> {
@@ -309,7 +334,7 @@ export class MessageEditController {
         ...workspaceId === undefined ? {} : { workspaceId },
         ...agentPreset === undefined ? {} : { agentPreset },
       }),
-      openVersion: sessionId => this.openWhenListed(sessionId as SessionId),
+      openVersion: async sessionId => { await this.openWhenListed(sessionId as SessionId) },
     }
     this.observe()
   }
@@ -540,15 +565,34 @@ export class MessageEditController {
    * resolved (subagent session, absent connection, RPC failure) the host falls
    * back to the history-derived route. */
   private async composerRoute(): Promise<ModelRoute | undefined> {
-    const projection = this.sessions.binding(this.sessionId)?.session.projections.faceOf('modelSelection').getSnapshot()
-    if (typeof projection !== 'object' || projection === null || !('next' in projection)) return undefined
-    const current = projection.next
-    if (typeof current !== 'object' || current === null) return undefined
-    if (!('provider' in current) || typeof current.provider !== 'string' || !current.provider) return undefined
-    if (!('model' in current) || typeof current.model !== 'string' || !current.model) return undefined
-    const reasoningEffort = 'reasoningEffort' in current ? current.reasoningEffort : undefined
-    if (reasoningEffort !== undefined && (typeof reasoningEffort !== 'string' || !reasoningEffort)) return undefined
-    return { provider: current.provider, model: current.model, ...reasoningEffort === undefined ? {} : { reasoningEffort } }
+    // Read the same per-session directory that the composer model seat renders.
+    // Its local `current` snapshot updates as soon as the selection RPC settles;
+    // the durable projection can arrive one event later through the session
+    // stream, which used to make a just-selected model disappear from Retry.
+    try {
+      const get = (this.ctx as unknown as { get?: (name: string) => unknown }).get
+      const directories = typeof get === 'function'
+        ? get.call(this.ctx, 'modelDirectories') as ModelDirectoryLike | undefined
+        : undefined
+      const current = directories?.directoryFor?.(this.sessionId)?.store?.getSnapshot?.().current
+      const route = modelRouteOf(current)
+      if (route !== undefined) return route
+    } catch {
+      // Fall through to the durable projection below.
+    }
+
+    // A mounted message-action can outlive its replaceable session binding during
+    // navigation/reconnect. Model selection is only an optimization, so a
+    // transiently absent/changed projection must fall back to the host's
+    // history-derived route instead of making Retry fail before its POST.
+    try {
+      const session = this.sessions.binding(this.sessionId)?.session
+      const projection = session?.projections?.faceOf('modelSelection')?.getSnapshot()
+      if (typeof projection !== 'object' || projection === null || !('next' in projection)) return undefined
+      return modelRouteOf(projection.next)
+    } catch {
+      return undefined
+    }
   }
 
   private async mutate(operation: MessageEditOperation): Promise<boolean> {
@@ -582,7 +626,8 @@ export class MessageEditController {
       if (this.disposed) return true
       // Workspace membership follows the controller-owned baseline/delta stream.
       this.store.update((state) => { state.pending = null })
-      await this.openWhenListed(result.sessionId as SessionId)
+      const opened = await this.openWhenListed(result.sessionId as SessionId)
+      if (!opened) throw new Error('新版本未进入会话列表，无法打开。')
       return true
     } catch (error) {
       if (this.disposed) return false
@@ -595,14 +640,16 @@ export class MessageEditController {
   }
 
   /** Session-list publication is the reactive dependency for navigation. */
-  private openWhenListed(sessionId: SessionId): Promise<void> {
+  private openWhenListed(sessionId: SessionId): Promise<boolean> {
     if (this.sessions.list.getSnapshot().byId[sessionId] !== undefined) {
       this.sessions.open(sessionId)
-      return Promise.resolve()
+      return Promise.resolve(true)
     }
 
-    // Proactively refresh the list to avoid relying solely on pushed event stream
-    void this.sessions.refresh()
+    // Host-created versions arrive independently of the HTTP response. Wait for
+    // the authoritative list stream instead of treating one short re-pull as a
+    // success and leaving a completed retry on the old conversation.
+    void this.sessions.refresh().catch(() => {})
 
     return new Promise((resolve) => {
       let settled = false
@@ -618,10 +665,11 @@ export class MessageEditController {
           try {
             this.sessions.open(sessionId)
           } catch {
-            // fail-safe if not in list yet
+            resolve(false)
+            return
           }
         }
-        resolve()
+        resolve(open)
       }
       const cancel = (): void => { finish(false) }
       this.navigationWaits.add(cancel)
@@ -634,18 +682,13 @@ export class MessageEditController {
         return
       }
 
-      // Fallback timer: re-pull if delayed, and force-attempt/finish if still missing
       timer = setTimeout(() => {
-        if (this.sessions.list.getSnapshot().byId[sessionId] !== undefined) {
-          finish(true)
-        } else {
-          void this.sessions.refresh().then(() => {
-            finish(this.sessions.list.getSnapshot().byId[sessionId] !== undefined)
-          }).catch(() => {
-            finish(false)
-          })
-        }
-      }, 500)
+        void this.sessions.refresh().then(() => {
+          finish(this.sessions.list.getSnapshot().byId[sessionId] !== undefined)
+        }).catch(() => {
+          finish(false)
+        })
+      }, NAVIGATION_WAIT_MS)
     })
   }
 }

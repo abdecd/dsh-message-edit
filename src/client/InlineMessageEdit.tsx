@@ -6,7 +6,7 @@
  * primitives package.
  */
 import { useEffect, useRef } from 'react'
-import type { EditableMessageBlock } from '../shared.ts'
+import { retryTurnForEvent, type EditableMessageBlock } from '../shared.ts'
 import type { MessageEditFace } from './controller.ts'
 import styles from './InlineMessageEdit.module.css'
 
@@ -340,18 +340,14 @@ export function InlineMessageEdit({
           e.stopPropagation()
           if (retryButton.disabled) return
 
-          // Read actual turn directly from DOM ancestor at click time as primary authority
-          const currentTurnAttr = retryButton.closest<HTMLElement>('[data-chat-turn]')?.getAttribute('data-chat-turn')
-            ?? retryButton.getAttribute('data-message-edit-turn')
-          const realDomTurn = currentTurnAttr ? Number.parseInt(currentTurnAttr, 10) : undefined
-
-          const liveBlocks = messagesRef.current.filter(m => m.eventSeq === eventSeq && m.kind === 'user')
-          const targetTurn = (realDomTurn !== undefined && Number.isFinite(realDomTurn))
-            ? realDomTurn
-            : (liveBlocks[0]?.turn ?? turn)
-
-          if (targetTurn === undefined || Number.isNaN(targetTurn)) {
-            console.warn('[dsh-message-edit] 无法解析该用户消息对应的回合')
+          // The exact event bound during injection is the retry contract. DOM
+          // `data-chat-turn` only describes a rendered/virtualized seat and can
+          // be stale, re-numbered, or nested after an upstream UI upgrade; it
+          // must never override the timeline's eventSeq -> turn mapping.
+          const targetTurn = retryTurnForEvent(messagesRef.current, eventSeq)
+          if (targetTurn === undefined) {
+            console.warn('[dsh-message-edit] 重试目标已过期，正在重新同步消息操作。')
+            syncRef.current?.()
             return
           }
 
