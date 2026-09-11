@@ -44,6 +44,16 @@ interface EditingState {
   text: string
 }
 
+interface TouchDragState {
+  type: 'row' | 'section'
+  key?: string
+  sectionId?: string
+  badge: string
+  preview: string
+  currentX: number
+  currentY: number
+}
+
 const BLOCK_LABEL: Record<EditableBlockKind, string> = {
   user: '用户消息',
   'assistant.reasoning': '助手思考',
@@ -211,6 +221,7 @@ function MessageCard({
   onDragOver,
   onDragLeave,
   onDrop,
+  onTouchStart,
   onSelectToggle,
   onBeginEdit,
   onCancelEdit,
@@ -230,6 +241,7 @@ function MessageCard({
   onDragOver?: (event: React.DragEvent<HTMLElement>, row: DraftRow) => void
   onDragLeave?: () => void
   onDrop?: (event: React.DragEvent<HTMLElement>, row: DraftRow) => void
+  onTouchStart?: (event: React.TouchEvent<HTMLElement>, row: DraftRow) => void
   onSelectToggle: (row: DraftRow) => void
   onBeginEdit: (row: DraftRow) => void
   onCancelEdit: () => void
@@ -253,6 +265,7 @@ function MessageCard({
   return (
     <article
       className={styles['messageCard']}
+      data-message-key={row.key}
       data-kind={kindDataAttr}
       data-added={row.added || undefined}
       data-dragging={isDragging || undefined}
@@ -267,7 +280,9 @@ function MessageCard({
               <span
                 className={styles['dragHandle']}
                 draggable
+                data-active={isDragging || undefined}
                 title="按住拖拽排序"
+                onTouchStart={(e) => { onTouchStart?.(e, row) }}
                 onDragStart={(e) => {
                   e.dataTransfer.effectAllowed = 'move'
                   e.dataTransfer.setData('text/plain', row.key)
@@ -390,6 +405,8 @@ export function MessageEditTimelineView({
   const [dragOverTarget, setDragOverTarget] = useState<{ key: string; position: 'top' | 'bottom' } | null>(null)
   const [dragOverSection, setDragOverSection] = useState<{ id: string; position: 'top' | 'bottom' } | null>(null)
   const [collapsedSectionIds, setCollapsedSectionIds] = useState<Set<string>>(new Set())
+  const [touchDragState, setTouchDragState] = useState<TouchDragState | null>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
   const currentWorkspace = useMemo(
     () => workspaceItems.find(workspace => workspace.sessionIds.includes(sessionId)),
     [workspaceItems, sessionId],
@@ -475,6 +492,10 @@ export function MessageEditTimelineView({
     () => buildSections(rows, baseline, timeline?.retryableTurns ?? []),
     [rows, baseline, timeline],
   )
+  const rowsRef = useRef(rows)
+  const sectionsRef = useRef(sections)
+  useEffect(() => { rowsRef.current = rows }, [rows])
+  useEffect(() => { sectionsRef.current = sections }, [sections])
   const changes = useMemo(() => {
     let added = 0
     let edited = 0
@@ -616,6 +637,91 @@ export function MessageEditTimelineView({
     )
   }
 
+  const touchStateRef = useRef<{
+    active: boolean
+    type: 'row' | 'section'
+    key?: string
+    sectionId?: string
+    touchId: number
+    lastX: number
+    lastY: number
+  } | null>(null)
+
+  const dropTargetRef = useRef<{
+    kind: 'card'
+    key: string
+    position: 'top' | 'bottom'
+  } | {
+    kind: 'section'
+    sectionId: string
+    position: 'top' | 'bottom'
+  } | null>(null)
+
+  const moveRow = (sourceKey: string, targetKey: string, position: 'top' | 'bottom'): boolean => {
+    if (sourceKey === targetKey) return false
+    const currentRows = [...rowsRef.current]
+    const sourceIndex = currentRows.findIndex(r => r.key === sourceKey)
+    const targetIndex = currentRows.findIndex(r => r.key === targetKey)
+    if (sourceIndex === -1 || targetIndex === -1) return false
+
+    const [movedRow] = currentRows.splice(sourceIndex, 1)
+    if (!movedRow) return false
+
+    let insertIndex = currentRows.findIndex(r => r.key === targetKey)
+    if (position === 'bottom') {
+      insertIndex += 1
+    }
+    currentRows.splice(insertIndex, 0, movedRow)
+
+    updateDraftRows(currentRows)
+    return true
+  }
+
+  const moveRowIntoSection = (sourceKey: string, targetSectionId: string): boolean => {
+    const targetSection = sectionsRef.current.find(s => s.id === targetSectionId)
+    if (!targetSection) return false
+    const lastRow = targetSection.rows[targetSection.rows.length - 1]
+    if (!lastRow || lastRow.key === sourceKey) return false
+
+    const currentRows = [...rowsRef.current]
+    const sourceIndex = currentRows.findIndex(r => r.key === sourceKey)
+    if (sourceIndex === -1) return false
+
+    const [movedRow] = currentRows.splice(sourceIndex, 1)
+    if (!movedRow) return false
+
+    const targetIndex = currentRows.findIndex(r => r.key === lastRow.key)
+    if (targetIndex === -1) {
+      currentRows.push(movedRow)
+    } else {
+      currentRows.splice(targetIndex + 1, 0, movedRow)
+    }
+
+    updateDraftRows(currentRows)
+    return true
+  }
+
+  const moveSection = (sourceSectionId: string, targetSectionId: string, position: 'top' | 'bottom'): boolean => {
+    if (sourceSectionId === targetSectionId) return false
+    const currentSections = [...sectionsRef.current]
+    const sourceIndex = currentSections.findIndex(s => s.id === sourceSectionId)
+    const targetIndex = currentSections.findIndex(s => s.id === targetSectionId)
+    if (sourceIndex === -1 || targetIndex === -1) return false
+
+    const [movedSection] = currentSections.splice(sourceIndex, 1)
+    if (!movedSection) return false
+
+    let insertIndex = currentSections.findIndex(s => s.id === targetSectionId)
+    if (position === 'bottom') {
+      insertIndex += 1
+    }
+    currentSections.splice(insertIndex, 0, movedSection)
+
+    const reorderedRows = currentSections.flatMap(s => s.rows)
+    updateDraftRows(reorderedRows)
+    return true
+  }
+
   const handleDragStart = (row: DraftRow): void => {
     setDraggingKey(row.key)
     setDraggingSectionId(null)
@@ -633,39 +739,293 @@ export function MessageEditTimelineView({
     setDragOverSection(null)
   }
 
-  const autoScroll = (event: React.DragEvent<HTMLElement>): void => {
-    let scrollEl: HTMLElement | null = event.currentTarget.parentElement
-    while (scrollEl && scrollEl !== document.body) {
+  const animFrameIdRef = useRef<number | null>(null)
+  const autoScrollTargetRef = useRef<{ clientY: number } | null>(null)
+
+  const performAutoScroll = (clientY: number): void => {
+    let scrollEl: HTMLElement | null = rootRef.current?.parentElement ?? null
+    while (scrollEl && scrollEl !== document.body && scrollEl !== document.documentElement) {
       if (scrollEl.scrollHeight > scrollEl.clientHeight) {
         const overflow = getComputedStyle(scrollEl).overflowY
         if (overflow === 'auto' || overflow === 'scroll') break
       }
       scrollEl = scrollEl.parentElement
     }
+    if (!scrollEl) scrollEl = document.querySelector('[data-conversation-scroll]') as HTMLElement | null
     if (!scrollEl) scrollEl = document.querySelector('.wSkVaW_scrollBody') as HTMLElement | null
+    if (!scrollEl) scrollEl = (document.scrollingElement as HTMLElement | null) ?? document.documentElement
     if (!scrollEl) return
 
-    const rect = scrollEl.getBoundingClientRect()
-    // The bottom of the visible scroll area is cut off by the composer seat (about 130px)
+    const isDoc = scrollEl === document.documentElement || scrollEl === document.body
+    const rect = isDoc
+      ? { top: 0, bottom: window.innerHeight }
+      : scrollEl.getBoundingClientRect()
+
     const composerSeat = document.querySelector('.wSkVaW_composerSeat') as HTMLElement | null
     const effectiveBottom = composerSeat ? composerSeat.getBoundingClientRect().top : rect.bottom
+    const effectiveTop = rect.top
 
-    const threshold = 120
-    const maxSpeed = 50
+    const threshold = 100
+    const maxSpeed = 35
 
-    if (event.clientY < rect.top + threshold) {
-      const ratio = Math.max(0.2, (rect.top + threshold - event.clientY) / threshold)
-      scrollEl.scrollTop -= Math.round(maxSpeed * ratio)
-    } else if (event.clientY > effectiveBottom - threshold) {
-      const ratio = Math.max(0.2, (event.clientY - (effectiveBottom - threshold)) / threshold)
-      scrollEl.scrollTop += Math.round(maxSpeed * ratio)
+    let delta = 0
+    if (clientY < effectiveTop + threshold) {
+      const ratio = Math.max(0.15, (effectiveTop + threshold - clientY) / threshold)
+      delta = -Math.round(maxSpeed * ratio)
+    } else if (clientY > effectiveBottom - threshold) {
+      const ratio = Math.max(0.15, (clientY - (effectiveBottom - threshold)) / threshold)
+      delta = Math.round(maxSpeed * ratio)
     }
+
+    if (delta !== 0) {
+      if (isDoc) {
+        window.scrollBy(0, delta)
+      } else {
+        scrollEl.scrollTop += delta
+      }
+    }
+  }
+
+  const startAutoScrollLoop = (): void => {
+    if (animFrameIdRef.current !== null) return
+    const loop = (): void => {
+      if (autoScrollTargetRef.current !== null) {
+        performAutoScroll(autoScrollTargetRef.current.clientY)
+        const cur = touchStateRef.current
+        if (cur && cur.active) {
+          updateTouchDropTarget(cur.lastX, cur.lastY)
+        }
+        animFrameIdRef.current = requestAnimationFrame(loop)
+      } else {
+        animFrameIdRef.current = null
+      }
+    }
+    animFrameIdRef.current = requestAnimationFrame(loop)
+  }
+
+  const stopAutoScrollLoop = (): void => {
+    autoScrollTargetRef.current = null
+    if (animFrameIdRef.current !== null) {
+      cancelAnimationFrame(animFrameIdRef.current)
+      animFrameIdRef.current = null
+    }
+  }
+
+  const updateTouchDropTarget = (clientX: number, clientY: number): void => {
+    const cur = touchStateRef.current
+    if (!cur || !cur.active) return
+
+    const element = document.elementFromPoint(clientX, clientY) as HTMLElement | null
+    if (!element) return
+
+    if (cur.type === 'row' && cur.key) {
+      const targetCardEl = element.closest('[data-message-key]') as HTMLElement | null
+      const targetKey = targetCardEl?.getAttribute('data-message-key')
+      if (targetCardEl && targetKey && targetKey !== cur.key) {
+        const rect = targetCardEl.getBoundingClientRect()
+        const position = clientY - rect.top < rect.height / 2 ? 'top' : 'bottom'
+        setDragOverTarget({ key: targetKey, position })
+        setDragOverSection(null)
+        dropTargetRef.current = { kind: 'card', key: targetKey, position }
+        return
+      }
+
+      const targetSecEl = element.closest('[data-section-id]') as HTMLElement | null
+      const targetSecId = targetSecEl?.getAttribute('data-section-id')
+      if (targetSecEl && targetSecId) {
+        setDragOverTarget(null)
+        setDragOverSection({ id: targetSecId, position: 'bottom' })
+        dropTargetRef.current = { kind: 'section', sectionId: targetSecId, position: 'bottom' }
+        return
+      }
+
+      setDragOverTarget(null)
+      setDragOverSection(null)
+      dropTargetRef.current = null
+    } else if (cur.type === 'section' && cur.sectionId) {
+      const targetSecEl = element.closest('[data-section-id]') as HTMLElement | null
+      const targetSecId = targetSecEl?.getAttribute('data-section-id')
+      if (targetSecEl && targetSecId && targetSecId !== cur.sectionId) {
+        const rect = targetSecEl.getBoundingClientRect()
+        const position = clientY - rect.top < rect.height / 2 ? 'top' : 'bottom'
+        setDragOverSection({ id: targetSecId, position })
+        setDragOverTarget(null)
+        dropTargetRef.current = { kind: 'section', sectionId: targetSecId, position }
+        return
+      }
+
+      setDragOverTarget(null)
+      setDragOverSection(null)
+      dropTargetRef.current = null
+    }
+  }
+
+  const isTouchBoundRef = useRef(false)
+
+  const onWindowTouchMove = (e: TouchEvent): void => {
+    const cur = touchStateRef.current
+    if (!cur || !cur.active) return
+    const touch = Array.from(e.touches).find(t => t.identifier === cur.touchId)
+    if (!touch) return
+    if (e.cancelable) e.preventDefault()
+
+    cur.lastX = touch.clientX
+    cur.lastY = touch.clientY
+    autoScrollTargetRef.current = { clientY: touch.clientY }
+
+    setTouchDragState(prev => prev ? {
+      ...prev,
+      currentX: touch.clientX,
+      currentY: touch.clientY,
+    } : null)
+
+    updateTouchDropTarget(touch.clientX, touch.clientY)
+  }
+
+  const endTouchDrag = (): void => {
+    stopAutoScrollLoop()
+    unbindWindowTouchEvents()
+
+    const cur = touchStateRef.current
+    const target = dropTargetRef.current
+    touchStateRef.current = null
+    dropTargetRef.current = null
+
+    if (cur && cur.active && target) {
+      if (cur.type === 'row' && cur.key) {
+        if (target.kind === 'card') {
+          moveRow(cur.key, target.key, target.position)
+        } else if (target.kind === 'section') {
+          moveRowIntoSection(cur.key, target.sectionId)
+        }
+      } else if (cur.type === 'section' && cur.sectionId) {
+        if (target.kind === 'section') {
+          moveSection(cur.sectionId, target.sectionId, target.position)
+        }
+      }
+    }
+
+    setDraggingKey(null)
+    setDraggingSectionId(null)
+    setDragOverTarget(null)
+    setDragOverSection(null)
+    setTouchDragState(null)
+  }
+
+  const cancelTouchDrag = (): void => {
+    stopAutoScrollLoop()
+    unbindWindowTouchEvents()
+    touchStateRef.current = null
+    dropTargetRef.current = null
+    setDraggingKey(null)
+    setDraggingSectionId(null)
+    setDragOverTarget(null)
+    setDragOverSection(null)
+    setTouchDragState(null)
+  }
+
+  const bindWindowTouchEvents = (): void => {
+    if (isTouchBoundRef.current) return
+    isTouchBoundRef.current = true
+    window.addEventListener('touchmove', onWindowTouchMove, { passive: false })
+    window.addEventListener('touchend', endTouchDrag, { passive: true })
+    window.addEventListener('touchcancel', cancelTouchDrag, { passive: true })
+  }
+
+  const unbindWindowTouchEvents = (): void => {
+    if (!isTouchBoundRef.current) return
+    isTouchBoundRef.current = false
+    window.removeEventListener('touchmove', onWindowTouchMove)
+    window.removeEventListener('touchend', endTouchDrag)
+    window.removeEventListener('touchcancel', cancelTouchDrag)
+  }
+
+  useEffect(() => {
+    return () => {
+      stopAutoScrollLoop()
+      unbindWindowTouchEvents()
+    }
+  }, [])
+
+  const handleRowTouchStart = (e: React.TouchEvent<HTMLElement>, row: DraftRow): void => {
+    if (busy || e.touches.length !== 1) return
+    e.stopPropagation()
+    const touch = e.touches[0]
+    if (!touch) return
+
+    touchStateRef.current = {
+      active: true,
+      type: 'row',
+      key: row.key,
+      touchId: touch.identifier,
+      lastX: touch.clientX,
+      lastY: touch.clientY,
+    }
+    dropTargetRef.current = null
+    autoScrollTargetRef.current = { clientY: touch.clientY }
+
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      try { navigator.vibrate(25) } catch {}
+    }
+
+    setDraggingKey(row.key)
+    setDraggingSectionId(null)
+    const badge = row.kind === 'tool.call' && row.toolName
+      ? `工具调用: ${row.toolName}`
+      : BLOCK_LABEL[row.kind] || row.kind
+    setTouchDragState({
+      type: 'row',
+      key: row.key,
+      badge,
+      preview: row.text.slice(0, 30) || '（空内容）',
+      currentX: touch.clientX,
+      currentY: touch.clientY,
+    })
+
+    startAutoScrollLoop()
+    bindWindowTouchEvents()
+  }
+
+  const handleSectionTouchStart = (e: React.TouchEvent<HTMLElement>, section: DraftSection): void => {
+    if (busy || e.touches.length !== 1) return
+    e.stopPropagation()
+    const touch = e.touches[0]
+    if (!touch) return
+
+    touchStateRef.current = {
+      active: true,
+      type: 'section',
+      sectionId: section.id,
+      touchId: touch.identifier,
+      lastX: touch.clientX,
+      lastY: touch.clientY,
+    }
+    dropTargetRef.current = null
+    autoScrollTargetRef.current = { clientY: touch.clientY }
+
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      try { navigator.vibrate(25) } catch {}
+    }
+
+    setDraggingSectionId(section.id)
+    setDraggingKey(null)
+    setTouchDragState({
+      type: 'section',
+      sectionId: section.id,
+      badge: section.turnLabel,
+      preview: section.preview.slice(0, 30) || '（空内容）',
+      currentX: touch.clientX,
+      currentY: touch.clientY,
+    })
+
+    startAutoScrollLoop()
+    bindWindowTouchEvents()
   }
 
   const handleDragOver = (event: React.DragEvent<HTMLElement>, targetRow: DraftRow): void => {
     if (draggingKey === null || draggingKey === targetRow.key) return
     event.preventDefault()
-    autoScroll(event)
+    performAutoScroll(event.clientY)
     const rect = event.currentTarget.getBoundingClientRect()
     const offset = event.clientY - rect.top
     const position = offset < rect.height / 2 ? 'top' : 'bottom'
@@ -675,7 +1035,7 @@ export function MessageEditTimelineView({
   }
 
   const handleSectionDragOver = (event: React.DragEvent<HTMLElement>, targetSection: DraftSection): void => {
-    autoScroll(event)
+    performAutoScroll(event.clientY)
     if (draggingSectionId !== null) {
       if (draggingSectionId === targetSection.id) return
       event.preventDefault()
@@ -708,28 +1068,7 @@ export function MessageEditTimelineView({
       position = offset < rect.height / 2 ? 'top' : 'bottom'
     }
 
-    const currentRows = [...rows]
-    const sourceIndex = currentRows.findIndex(r => r.key === sourceKey)
-    const targetIndex = currentRows.findIndex(r => r.key === targetRow.key)
-    if (sourceIndex === -1 || targetIndex === -1) {
-      handleDragEnd()
-      return
-    }
-
-    const [movedRow] = currentRows.splice(sourceIndex, 1)
-    if (!movedRow) {
-      handleDragEnd()
-      return
-    }
-
-    // Recalculate targetIndex after removing the source item
-    let insertIndex = currentRows.findIndex(r => r.key === targetRow.key)
-    if (position === 'bottom') {
-      insertIndex += 1
-    }
-    currentRows.splice(insertIndex, 0, movedRow)
-
-    updateDraftRows(currentRows)
+    moveRow(sourceKey, targetRow.key, position)
     handleDragEnd()
   }
 
@@ -743,74 +1082,22 @@ export function MessageEditTimelineView({
         handleDragEnd()
         return
       }
-
-      const sourceSectionIndex = sections.findIndex(s => s.id === draggingSectionId)
-      const targetSectionIndex = sections.findIndex(s => s.id === targetSection.id)
-      if (sourceSectionIndex === -1 || targetSectionIndex === -1) {
-        handleDragEnd()
-        return
-      }
-
       let position = dragOverSection?.position
       if (!position || dragOverSection?.id !== targetSection.id) {
         const rect = event.currentTarget.getBoundingClientRect()
         const offset = event.clientY - rect.top
         position = offset < rect.height / 2 ? 'top' : 'bottom'
       }
-
-      const newSections = [...sections]
-      const [movedSection] = newSections.splice(sourceSectionIndex, 1)
-      if (!movedSection) {
-        handleDragEnd()
-        return
-      }
-
-      let insertIndex = newSections.findIndex(s => s.id === targetSection.id)
-      if (position === 'bottom') {
-        insertIndex += 1
-      }
-      newSections.splice(insertIndex, 0, movedSection)
-
-      // Flatten reordered sections back to rows
-      const reorderedRows = newSections.flatMap(s => s.rows)
-      updateDraftRows(reorderedRows)
+      moveSection(draggingSectionId, targetSection.id, position)
       handleDragEnd()
       return
     }
 
     // 2. Dropping single row into section
     const sourceKey = draggingKey || event.dataTransfer.getData('text/plain')
-    if (!sourceKey) {
-      handleDragEnd()
-      return
+    if (sourceKey) {
+      moveRowIntoSection(sourceKey, targetSection.id)
     }
-    const lastRow = targetSection.rows[targetSection.rows.length - 1]
-    if (!lastRow || lastRow.key === sourceKey) {
-      handleDragEnd()
-      return
-    }
-
-    const currentRows = [...rows]
-    const sourceIndex = currentRows.findIndex(r => r.key === sourceKey)
-    if (sourceIndex === -1) {
-      handleDragEnd()
-      return
-    }
-
-    const [movedRow] = currentRows.splice(sourceIndex, 1)
-    if (!movedRow) {
-      handleDragEnd()
-      return
-    }
-
-    const targetIndex = currentRows.findIndex(r => r.key === lastRow.key)
-    if (targetIndex === -1) {
-      currentRows.push(movedRow)
-    } else {
-      currentRows.splice(targetIndex + 1, 0, movedRow)
-    }
-
-    updateDraftRows(currentRows)
     handleDragEnd()
   }
 
@@ -901,7 +1188,11 @@ export function MessageEditTimelineView({
   }
 
   return (
-    <div className={styles['root']}>
+    <div
+      ref={rootRef}
+      className={styles['root']}
+      data-touch-dragging={touchDragState !== null || undefined}
+    >
       <header className={styles['pageHeader']}>
         <div>
           <h1 className={styles['title']}>消息编辑与重生成</h1>
@@ -1156,6 +1447,7 @@ export function MessageEditTimelineView({
                     <li
                       key={section.id}
                       className={styles['turnSection']}
+                      data-section-id={section.id}
                       data-collapsed={isCollapsed || undefined}
                       data-dragging={draggingSectionId === section.id || undefined}
                       data-drag-over-top={dragOverSection?.id === section.id && dragOverSection.position === 'top' || undefined}
@@ -1189,7 +1481,9 @@ export function MessageEditTimelineView({
                             <span
                               className={styles['dragHandle']}
                               draggable
+                              data-active={draggingSectionId === section.id || undefined}
                               title="按住拖拽移动整个回合"
+                              onTouchStart={(e) => { handleSectionTouchStart(e, section) }}
                               onDragStart={(e) => {
                                 e.dataTransfer.effectAllowed = 'move'
                                 e.dataTransfer.setData('text/plain', `section:${section.id}`)
@@ -1265,6 +1559,7 @@ export function MessageEditTimelineView({
                             onDragEnd={handleDragEnd}
                             onDragOver={handleDragOver}
                             onDrop={handleDrop}
+                            onTouchStart={handleRowTouchStart}
                             onSelectToggle={toggleSelectRow}
                             onBeginEdit={beginEdit}
                             onCancelEdit={cancelEdit}
@@ -1295,6 +1590,21 @@ export function MessageEditTimelineView({
             )}
         </main>
       </div>
+
+      {touchDragState !== null && (
+        <div
+          className={styles['touchDragGhost']}
+          style={{
+            transform: `translate3d(${Math.max(10, Math.min((typeof window !== 'undefined' ? window.innerWidth : 400) - 240, touchDragState.currentX - 40))}px, ${touchDragState.currentY > 70 ? touchDragState.currentY - 55 : touchDragState.currentY + 25}px, 0)`,
+          }}
+        >
+          <DragGripIcon />
+          <span className={styles['touchDragGhostKind']}>{touchDragState.badge}</span>
+          {touchDragState.preview ? (
+            <span className={styles['touchDragGhostPreview']}>{touchDragState.preview}</span>
+          ) : null}
+        </div>
+      )}
     </div>
   )
 }

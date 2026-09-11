@@ -17,7 +17,7 @@
  *   node scripts/repair-session-logs.mjs --apply      # write (backs up originals)
  *   node scripts/repair-session-logs.mjs --root DIR   # scan a different root
  *
- * Logs are matched as <root>/<project>/<session>/session.jsonl[.zstd].
+ * Logs are matched as <root>/<project>/<session>/session[.v3].jsonl[.zstd].
  * Before replacing a file, its original is copied to a backup directory and
  * the replacement is verified to differ from the original ONLY by the
  * inserted marker(s).
@@ -144,24 +144,37 @@ function repairLine(line) {
   return [out, count]
 }
 
-/** Decode a stored log; returns the plaintext plus any structurally incomplete final frame. */
+/** Decode a stored log; returns the plaintext plus any structural repair needed. */
 function decodeLog(filePath, bytes) {
   if (!filePath.endsWith('.zstd')) return { text: bytes.toString('utf8'), tornTail: undefined }
   const { frames, tornStart } = scanZstdFrames(bytes)
   const parts = frames.map(({ start, end }) => zstdDecompressSync(bytes.subarray(start, end)))
+  const firstFrame = parts[0]
+  const firstFrameIsHeaderOnly = firstFrame !== undefined
+    && firstFrame.length > 0
+    && firstFrame.indexOf(10) === firstFrame.length - 1
   return {
     text: Buffer.concat(parts).toString('utf8'),
     tornTail: tornStart === undefined ? undefined : bytes.subarray(tornStart),
+    frameRepairNeeded: !firstFrameIsHeaderOnly,
   }
 }
 
-/** Re-encode as one checksummed frame, preserving a torn final frame byte-for-byte. */
+/** Re-encode with a dedicated header frame, preserving a torn final frame byte-for-byte. */
 function encodeLog(filePath, text, tornTail) {
   if (!filePath.endsWith('.zstd')) return Buffer.from(text, 'utf8')
-  const frame = zstdCompressSync(Buffer.from(text, 'utf8'), {
+  const headerEnd = text.indexOf('\n')
+  if (headerEnd === -1) throw new Error('stored zstd log has no complete header line')
+  const options = {
     params: { [constants.ZSTD_c_checksumFlag]: 1 },
-  })
-  return tornTail === undefined ? frame : Buffer.concat([frame, tornTail])
+  }
+  const headerFrame = zstdCompressSync(Buffer.from(text.slice(0, headerEnd + 1), 'utf8'), options)
+  const body = Buffer.from(text.slice(headerEnd + 1), 'utf8')
+  const frames = body.length === 0
+    ? [headerFrame]
+    : [headerFrame, zstdCompressSync(body, options)]
+  const encoded = Buffer.concat(frames)
+  return tornTail === undefined ? encoded : Buffer.concat([encoded, tornTail])
 }
 
 function listLogFiles(rootDir) {
@@ -172,7 +185,7 @@ function listLogFiles(rootDir) {
     for (const session of readdirSync(projectDir, { withFileTypes: true })) {
       if (!session.isDirectory()) continue
       const sessionDir = join(projectDir, session.name)
-      for (const name of ['session.jsonl.zstd', 'session.jsonl']) {
+      for (const name of ['session.v3.jsonl.zstd', 'session.v3.jsonl', 'session.jsonl.zstd', 'session.jsonl']) {
         const path = join(sessionDir, name)
         try {
           readFileSync(path)
@@ -196,7 +209,7 @@ for (const file of listLogFiles(root)) {
   filesScanned += 1
   try {
     const originalBytes = readFileSync(file)
-    const { text, tornTail } = decodeLog(file, originalBytes)
+    const { text, tornTail, frameRepairNeeded } = decodeLog(file, originalBytes)
     const lines = text.split('\n')
     const repairedLines = []
     let marked = 0
@@ -208,7 +221,7 @@ for (const file of listLogFiles(root)) {
       repairedLines.push(repairedLine)
       marked += count
     }
-    if (marked === 0) continue
+    if (marked === 0 && !frameRepairNeeded) continue
     const newText = repairedLines.join('\n')
     if (apply) {
       // The persistence backend re-resolves the path on every append, so a
@@ -240,7 +253,8 @@ for (const file of listLogFiles(root)) {
     }
     filesChanged += 1
     eventsMarked += marked
-    console.log(`${apply ? 'repaired' : 'would repair'} ${file} (+${marked} marker${marked === 1 ? '' : 's'})`)
+    const frameNote = frameRepairNeeded ? ' and restored header frame boundary' : ''
+    console.log(`${apply ? 'repaired' : 'would repair'} ${file} (+${marked} marker${marked === 1 ? '' : 's'}${frameNote})`)
   } catch (error) {
     failures.push({ file, error: String(error?.message ?? error) })
     console.error(`FAILED ${file}: ${String(error?.message ?? error)}`)

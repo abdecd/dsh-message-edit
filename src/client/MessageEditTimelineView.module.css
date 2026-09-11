@@ -922,10 +922,15 @@
   }
 
   .dragHandle {
-    min-width: 28px;
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
     min-height: 32px;
-    padding: 8px 4px;
-    margin-right: 0;
+    padding: 6px 8px;
+    margin-right: 2px;
+    touch-action: none;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
   }
 
   .messageText {
@@ -1056,6 +1061,11 @@
   border: 1px dashed var(--dsw-alias-brand-primary);
 }
 
+.root[data-touch-dragging] {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 .dragHandle {
   display: inline-flex;
   align-items: center;
@@ -1070,6 +1080,9 @@
   color: var(--dsw-alias-label-tertiary);
   cursor: grab;
   user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  -webkit-touch-callout: none;
   border-radius: 4px;
 }
 
@@ -1078,8 +1091,49 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
-.dragHandle:active {
+.dragHandle:active,
+.dragHandle[data-active] {
   cursor: grabbing;
+  color: var(--dsw-alias-brand-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.touchDragGhost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 10000;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--dsw-alias-bg-layer-2, #1f2328);
+  color: var(--dsw-alias-label-primary, #ffffff);
+  border: 1px solid var(--dsw-alias-brand-primary, #1e60d5);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.2);
+  font-size: 13px;
+  line-height: 18px;
+  max-width: 280px;
+  will-change: transform;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.touchDragGhostKind {
+  font-weight: 600;
+  color: var(--dsw-alias-brand-primary, #1e60d5);
+  white-space: nowrap;
+  flex: none;
+}
+
+.touchDragGhostPreview {
+  color: var(--dsw-alias-label-secondary, #9da7b3);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .messageCard[data-dragging] {
@@ -1160,8 +1214,15 @@
   }
 
   .dragHandle {
-    padding: 8px 4px;
-    margin-right: 0;
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    min-height: 32px;
+    padding: 6px 8px;
+    margin-right: 2px;
+    touch-action: none;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
   }
 
   .collapseTurnButton {
