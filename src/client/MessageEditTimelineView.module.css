@@ -1169,3 +1169,10 @@
     min-height: 32px;
   }
 }
+
+/* The host's transcript-width handles are siblings of the conversation
+ * scroller. Hide them while this full-surface tab owns the conversation ring,
+ * matching dsh-context's opt-out so hovering the tab cannot expose a resize UI. */
+[data-conversation-scroll]:has(.root) ~ [data-width-handle] {
+  display: none;
+}
