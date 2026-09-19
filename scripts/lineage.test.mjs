@@ -458,3 +458,402 @@ test('rejects session when it genuinely has multiple own version events matching
   assert.match(responseData.error, /包含多个自身版本效果/)
 })
 
+test('timeline correctly identifies compaction node and extracts clean summary text and token stats', async () => {
+  const compactionHeader = { id: 'session-cmp', version: 3, createdAt: 100 }
+  const compactionEvents = [
+    { type: 'turn/start', seq: 0, time: 101, data: { turn: 1 } },
+    {
+      type: 'user/message', seq: 1, time: 102,
+      data: { id: 'u1', role: 'user', content: [{ type: 'text', text: 'Hello 1' }], source: { kind: 'user' } },
+      surfaceOp: 'append',
+    },
+    { type: 'request/header', seq: 2, time: 103, data: { header: { config: { provider: 'test-p', model: 'test-m' } } } },
+    {
+      type: 'assistant/message', seq: 3, time: 104,
+      data: { turn: 1, step: 1, message: { id: 'a1', role: 'assistant', content: [{ type: 'text', text: 'Reply 1' }], source: { kind: 'model', provider: 'test-p', model: 'test-m' } } },
+      surfaceOp: 'append',
+    },
+    { type: 'turn/end', seq: 4, time: 105, data: { turn: 1, reason: { kind: 'completed' } } },
+    {
+      type: 'compaction/start', seq: 5, time: 106,
+      data: { compactionId: 'cmp-123', turn: null },
+    },
+    {
+      type: 'compaction/summary', seq: 6, time: 107,
+      data: {
+        compactionId: 'cmp-123',
+        summary: [{ type: 'text', text: 'Clean summary of earlier conversation.' }],
+        shadowedRange: { start: 1, end: 3 },
+        shadowedSeqs: [1, 3],
+        shadowedTokenCount: 150,
+        provider: 'test-p',
+        model: 'test-m',
+      },
+    },
+    {
+      type: 'user/message', seq: 7, time: 108,
+      data: {
+        id: 'u-cmp',
+        role: 'user',
+        content: [{ type: 'text', text: 'This is an automatically generated checkpoint...\n\n<summary>\nClean summary of earlier conversation.\n</summary>' }],
+        source: { kind: 'plugin', plugin: 'compact', compactionId: 'cmp-123' },
+      },
+      surfaceOp: { op: 'replace', startSeq: 1, endSeq: 3 },
+      sourceEventSeqs: [5, 6, 1, 3],
+    },
+    {
+      type: 'compaction/end', seq: 8, time: 109,
+      data: { compactionId: 'cmp-123', turn: null },
+    },
+    { type: 'turn/start', seq: 9, time: 110, data: { turn: 2 } },
+    {
+      type: 'user/message', seq: 10, time: 111,
+      data: { id: 'u2', role: 'user', content: [{ type: 'text', text: 'Hello 2' }], source: { kind: 'user' } },
+      surfaceOp: 'append',
+    },
+    {
+      type: 'assistant/message', seq: 11, time: 112,
+      data: { turn: 2, step: 1, message: { id: 'a2', role: 'assistant', content: [{ type: 'text', text: 'Reply 2' }], source: { kind: 'model', provider: 'test-p', model: 'test-m' } } },
+      surfaceOp: 'append',
+    },
+    { type: 'turn/end', seq: 12, time: 113, data: { turn: 2, reason: { kind: 'completed' } } },
+  ]
+
+  let routeHandler
+  const ctx = {
+    effect: (fn) => fn(),
+    webServer: { register: (entry) => { routeHandler = entry.handler } },
+    connection: { requestRejection: () => undefined },
+    sessionQuery: {
+      traceSession: async () => ({
+        complete: true,
+        root: { header: compactionHeader, live: false, persisted: true },
+        target: { header: compactionHeader, live: false, persisted: true },
+        ancestors: [],
+        descendants: [],
+      }),
+      readSession: async () => ({
+        session: compactionHeader,
+        inheritedEventCount: 0,
+        events: compactionEvents,
+      }),
+    },
+    sessions: { get: () => undefined, list: () => [], flush: async () => {} },
+    workspaceRegistry: { list: () => [] },
+    get: () => undefined,
+  }
+
+  messageEdit.apply(ctx)
+
+  const req = { method: 'GET', url: '/message-edit?sessionId=session-cmp', headers: { host: '127.0.0.1' }, on: () => {} }
+  let responseStatus
+  let responseData
+  const res = {
+    writeHead: (status) => { responseStatus = status },
+    end: (data) => { responseData = JSON.parse(data) },
+  }
+
+  await routeHandler(req, res)
+  assert.equal(responseStatus, 200)
+
+  const kinds = responseData.messages.map(m => m.kind)
+  assert.deepEqual(kinds, ['user', 'assistant.response', 'compaction', 'user', 'assistant.response'])
+
+  const compactionMsg = responseData.messages.find(m => m.kind === 'compaction')
+  assert.ok(compactionMsg, 'Compaction message block should exist')
+  assert.equal(compactionMsg.text, 'Clean summary of earlier conversation.')
+  assert.equal(compactionMsg.compactionId, 'cmp-123')
+  assert.equal(compactionMsg.shadowedItemCount, 2)
+  assert.equal(compactionMsg.shadowedTokenCount, 150)
+  assert.equal(compactionMsg.turn, 1, 'Manual compaction after turn 1 should stay with turn 1')
+
+  const retryable = responseData.retryableTurns
+  assert.equal(retryable.length, 2)
+  assert.equal(retryable[0].turn, 1)
+  assert.equal(retryable[1].turn, 2)
+})
+
+test('fork correctly handles compaction nodes and properly shadows prior surface nodes', async () => {
+  const sourceHeader = { id: 'source-fork-cmp', version: 3, createdAt: 1, cwd: '/tmp' }
+  const sourceEvents = [
+    { type: 'turn/start', seq: 0, time: 10, data: { turn: 1 } },
+    {
+      type: 'user/message', seq: 1, time: 11,
+      data: { id: 'u1', role: 'user', content: [{ type: 'text', text: 'Old prompt' }], source: { kind: 'user' } },
+      surfaceOp: 'append',
+    },
+    { type: 'request/header', seq: 2, time: 12, data: { header: { config: { provider: 'test-p', model: 'test-m' } } } },
+    {
+      type: 'assistant/message', seq: 3, time: 13,
+      data: { turn: 1, step: 1, message: { id: 'a1', role: 'assistant', content: [{ type: 'text', text: 'Old reply' }], source: { kind: 'model', provider: 'test-p', model: 'test-m' } } },
+      surfaceOp: 'append',
+    },
+    { type: 'turn/end', seq: 4, time: 14, data: { turn: 1, reason: { kind: 'completed' } } },
+    {
+      type: 'compaction/start', seq: 5, time: 15,
+      data: { compactionId: 'cmp-orig', turn: 1 },
+    },
+    {
+      type: 'compaction/summary', seq: 6, time: 16,
+      data: {
+        compactionId: 'cmp-orig',
+        summary: [{ type: 'text', text: 'Original summary' }],
+        shadowedRange: { start: 1, end: 3 },
+        shadowedSeqs: [1, 3],
+        shadowedTokenCount: 100,
+        provider: 'test-p',
+        model: 'test-m',
+      },
+    },
+    {
+      type: 'user/message', seq: 7, time: 17,
+      data: {
+        id: 'u-cmp',
+        role: 'user',
+        content: [{ type: 'text', text: 'This is an automatically generated checkpoint...\n\n<summary>\nOriginal summary\n</summary>' }],
+        source: { kind: 'plugin', plugin: 'compact', compactionId: 'cmp-orig' },
+      },
+      surfaceOp: { op: 'replace', startSeq: 1, endSeq: 3 },
+      sourceEventSeqs: [5, 6, 1, 3],
+    },
+    {
+      type: 'compaction/end', seq: 8, time: 18,
+      data: { compactionId: 'cmp-orig', turn: 1 },
+    },
+  ]
+
+  let routeHandler
+  let created
+  const followups = []
+  const sourceSession = {
+    id: 'source-fork-cmp',
+    header: sourceHeader,
+    snapshotEvents: () => sourceEvents,
+  }
+  const sourceAgent = {
+    session: sourceSession,
+    options: { provider: 'test-p', model: 'test-m' },
+    runMaintenance: async fn => fn(sourceAgent),
+  }
+  const childSession = {
+    id: 'child-fork-cmp',
+    header: { id: 'child-fork-cmp', version: 3, createdAt: 20 },
+    events: [],
+    snapshotEvents() { return this.events },
+  }
+
+  const ctx = {
+    effect: fn => fn(),
+    webServer: { register: entry => { routeHandler = entry.handler } },
+    connection: { requestRejection: () => undefined },
+    agents: {
+      get: () => sourceAgent,
+      create: async options => {
+        created = options
+        return {
+          agent: {
+            session: childSession,
+            followup: message => followups.push(message),
+          },
+          dispose: async () => {},
+        }
+      },
+    },
+    sessions: { flush: async () => {} },
+    workspaceRegistry: { list: () => [] },
+    get: () => undefined,
+  }
+
+  messageEdit.apply(ctx)
+
+  const forkPayload = {
+    action: 'fork',
+    sessionId: 'source-fork-cmp',
+    rows: [
+      { kind: 'user', text: 'Old prompt', sourceEventSeq: 1 },
+      { kind: 'assistant.response', text: 'Old reply', sourceEventSeq: 3 },
+      { kind: 'compaction', text: 'Edited summary text', compactionId: 'cmp-orig', sourceEventSeq: 7 },
+      { kind: 'user', text: 'New prompt after compaction' },
+    ],
+  }
+
+  const req = {
+    method: 'POST',
+    url: '/message-edit',
+    headers: { host: '127.0.0.1' },
+    on(event, listener) {
+      if (event === 'data') listener(Buffer.from(JSON.stringify(forkPayload)))
+      if (event === 'end') queueMicrotask(listener)
+    },
+  }
+
+  let status
+  let body
+  await routeHandler(req, {
+    writeHead: value => { status = value },
+    end: value => { body = JSON.parse(value) },
+  })
+
+  assert.equal(status, 200, JSON.stringify(body))
+  assert.ok(created, 'Child agent should be created')
+
+  // Check seed events
+  const seed = created.seed
+  const seedTypes = seed.map(e => e.type)
+  assert.ok(seedTypes.includes('compaction/start'), 'Seed should include compaction/start')
+  assert.ok(seedTypes.includes('compaction/summary'), 'Seed should include compaction/summary')
+  assert.ok(seedTypes.includes('compaction/end'), 'Seed should include compaction/end')
+
+  // Verify the compaction user/message has replace surfaceOp
+  const cmpUserEvent = seed.find(e => e.type === 'user/message' && e.data.source?.plugin === 'compact')
+  assert.ok(cmpUserEvent, 'Compaction checkpoint user/message should exist in seed')
+  assert.equal(typeof cmpUserEvent.surfaceOp, 'object')
+  assert.equal(cmpUserEvent.surfaceOp.op, 'replace')
+  assert.ok(cmpUserEvent.data.content[0].text.includes('Edited summary text'))
+
+  // Verify trailing user is queued as followup
+  assert.equal(followups.length, 1)
+  assert.equal(followups[0].content[0].text, 'New prompt after compaction')
+})
+
+test('edit operation on compaction node updates summary and rebuilds compaction', async () => {
+  const sourceHeader = { id: 'source-edit-cmp', version: 3, createdAt: 1, cwd: '/tmp' }
+  const sourceEvents = [
+    { type: 'turn/start', seq: 0, time: 10, data: { turn: 1 } },
+    {
+      type: 'user/message', seq: 1, time: 11,
+      data: { id: 'u1', role: 'user', content: [{ type: 'text', text: 'Old prompt' }], source: { kind: 'user' } },
+      surfaceOp: 'append',
+    },
+    { type: 'request/header', seq: 2, time: 12, data: { header: { config: { provider: 'test-p', model: 'test-m' } } } },
+    {
+      type: 'assistant/message', seq: 3, time: 13,
+      data: { turn: 1, step: 1, message: { id: 'a1', role: 'assistant', content: [{ type: 'text', text: 'Old reply' }], source: { kind: 'model', provider: 'test-p', model: 'test-m' } } },
+      surfaceOp: 'append',
+    },
+    { type: 'turn/end', seq: 4, time: 14, data: { turn: 1, reason: { kind: 'completed' } } },
+    {
+      type: 'compaction/start', seq: 5, time: 15,
+      data: { compactionId: 'cmp-orig', turn: 1 },
+    },
+    {
+      type: 'compaction/summary', seq: 6, time: 16,
+      data: {
+        compactionId: 'cmp-orig',
+        summary: [{ type: 'text', text: 'Original summary' }],
+        shadowedRange: { start: 1, end: 3 },
+        shadowedSeqs: [1, 3],
+        shadowedTokenCount: 100,
+        provider: 'test-p',
+        model: 'test-m',
+      },
+    },
+    {
+      type: 'user/message', seq: 7, time: 17,
+      data: {
+        id: 'u-cmp',
+        role: 'user',
+        content: [{ type: 'text', text: 'This is an automatically generated checkpoint...\n\n<summary>\nOriginal summary\n</summary>' }],
+        source: { kind: 'plugin', plugin: 'compact', compactionId: 'cmp-orig' },
+      },
+      surfaceOp: { op: 'replace', startSeq: 1, endSeq: 3 },
+      sourceEventSeqs: [5, 6, 1, 3],
+    },
+    {
+      type: 'compaction/end', seq: 8, time: 18,
+      data: { compactionId: 'cmp-orig', turn: 1 },
+    },
+    { type: 'turn/start', seq: 9, time: 19, data: { turn: 2 } },
+    {
+      type: 'user/message', seq: 10, time: 20,
+      data: { id: 'u2', role: 'user', content: [{ type: 'text', text: 'Followup prompt' }], source: { kind: 'user' } },
+      surfaceOp: 'append',
+    },
+    { type: 'turn/end', seq: 11, time: 21, data: { turn: 2, reason: { kind: 'completed' } } },
+  ]
+
+  let routeHandler
+  let created
+  const followups = []
+  const sourceSession = {
+    id: 'source-edit-cmp',
+    header: sourceHeader,
+    snapshotEvents: () => sourceEvents,
+  }
+  const sourceAgent = {
+    session: sourceSession,
+    options: { provider: 'test-p', model: 'test-m' },
+    runMaintenance: async fn => fn(sourceAgent),
+  }
+  const childSession = {
+    id: 'child-edit-cmp',
+    header: { id: 'child-edit-cmp', version: 3, createdAt: 30 },
+    events: [],
+    snapshotEvents() { return this.events },
+  }
+
+  const ctx = {
+    effect: fn => fn(),
+    webServer: { register: entry => { routeHandler = entry.handler } },
+    connection: { requestRejection: () => undefined },
+    agents: {
+      get: () => sourceAgent,
+      create: async options => {
+        created = options
+        return {
+          agent: {
+            session: childSession,
+            followup: message => followups.push(message),
+          },
+          dispose: async () => {},
+        }
+      },
+    },
+    sessions: { flush: async () => {} },
+    workspaceRegistry: { list: () => [] },
+    get: () => undefined,
+  }
+
+  messageEdit.apply(ctx)
+
+  const editPayload = {
+    action: 'edit',
+    sessionId: 'source-edit-cmp',
+    eventSeq: 7,
+    blockIndex: 0,
+    text: 'Newly revised summary',
+    cascade: 'preserve',
+  }
+
+  const req = {
+    method: 'POST',
+    url: '/message-edit',
+    headers: { host: '127.0.0.1' },
+    on(event, listener) {
+      if (event === 'data') listener(Buffer.from(JSON.stringify(editPayload)))
+      if (event === 'end') queueMicrotask(listener)
+    },
+  }
+
+  let status
+  let body
+  await routeHandler(req, {
+    writeHead: value => { status = value },
+    end: value => { body = JSON.parse(value) },
+  })
+
+  assert.equal(status, 200, JSON.stringify(body))
+  assert.ok(created, 'Child agent should be created')
+
+  // Verify version effect metadata
+  const versionEvent = created.seed.find(e => e.type === 'message-edit/version')
+  assert.ok(versionEvent)
+  assert.equal(versionEvent.data.effect.blockKind, 'compaction')
+  assert.equal(versionEvent.data.effect.before, 'Original summary')
+  assert.equal(versionEvent.data.effect.after, 'Newly revised summary')
+
+  // Verify downstream user was preserved
+  assert.equal(followups.length, 1)
+  assert.equal(followups[0].content[0].text, 'Followup prompt')
+})
+

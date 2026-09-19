@@ -6,7 +6,9 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import { installModelSelection, type Agent, type AgentHandle, type AgentOptions, type AgentSetup, type ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 // import type { PresetBearingSession } from '@deepseek-ai/dsh-agent-presets'
 import {
+  foldSurface,
   type SessionId,
+  type SessionSeq,
   type Session,
   type SessionEvent,
   type SessionEventType,
@@ -87,6 +89,36 @@ declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
     /** Durable branch provenance owned by moeblack/message-edit. */
     'message-edit/version': StoredMessageEditVersionEvent
+    'compaction/start': {
+      compactionId: string
+      sourceCommandId?: string
+      turn: number | null
+    }
+    'compaction/summary': {
+      compactionId: string
+      sourceCommandId?: string
+      summary: ContentBlock[]
+      shadowedRange: { start: SessionSeq; end: SessionSeq }
+      shadowedSeqs: SessionSeq[]
+      shadowedTokenCount: number
+      provider: string
+      model: string
+      maxTokens?: number
+      usage?: unknown
+      rawOutput?: ContentBlock[]
+      llmStreamCall?: true
+    }
+    'compaction/end': {
+      compactionId: string
+      sourceCommandId?: string
+      turn: number | null
+      error?: string
+    }
+    'compaction/prune': {
+      shadowedRange: { start: SessionSeq; end: SessionSeq }
+      shadowedSeqs: SessionSeq[]
+      shadowedTokenCount: number
+    }
   }
 }
 
@@ -118,7 +150,7 @@ interface ClosedTurn {
 }
 
 interface ManualTurnItem {
-  kind: 'header' | 'user' | 'assistant' | 'tool.result' | 'system'
+  kind: 'header' | 'user' | 'assistant' | 'tool.result' | 'system' | 'compaction'
   header?: EpochHeader
   headerReason?: RequestHeaderReason
   context?: RequestContext
@@ -133,6 +165,12 @@ interface ManualTurnItem {
   toolResultMeta?: ToolResultEvent['data']['meta']
   /** Used only when a selected/malformed result has no call row in the draft. */
   toolResultFallbackAssistant?: AssistantMessage
+  compaction?: {
+    compactionId: string
+    summaryText: string
+    userMessage: UserMessage
+    shadowedTokenCount?: number
+  }
 }
 
 interface ManualTurn {
@@ -205,6 +243,45 @@ function newInjectedUserMessage(text: string): UserMessage {
   }) as UserMessage
 }
 
+function isCompactionCheckpoint(event: SessionEvent): boolean {
+  if (event.type !== 'user/message') return false
+  const source = (event.data as any)?.source
+  return source?.kind === 'plugin' && source?.plugin === 'compact'
+}
+
+function extractCompactionSummary(content: readonly ContentBlock[]): string {
+  const fullText = content
+    .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
+    .map(block => block.text)
+    .join('\n')
+  const match = fullText.match(/<summary>([\s\S]*?)<\/summary>/)
+  if (match?.[1]) {
+    return match[1].trim()
+  }
+  return fullText
+}
+
+function createCompactionUserMessage(summaryText: string, compactionId = crypto.randomUUID()): UserMessage {
+  const CHECKPOINT_PREAMBLE = 'This is an automatically generated checkpoint condensing an earlier span of the conversation to free up context. Treat the captured context as established background and build on it without restating it. Continue the task directly from the messages that follow, without acknowledging this checkpoint.'
+  const SUMMARY_OPEN_TAG = '<summary>'
+  const SUMMARY_CLOSE_TAG = '</summary>'
+  return Object.freeze({
+    id: crypto.randomUUID() as MessageId,
+    role: 'user' as const,
+    content: Object.freeze([
+      {
+        type: 'text',
+        text: `${CHECKPOINT_PREAMBLE}\n\n${SUMMARY_OPEN_TAG}\n${summaryText}\n${SUMMARY_CLOSE_TAG}`,
+      },
+    ] as ContentBlock[]),
+    source: Object.freeze({
+      kind: 'plugin' as const,
+      plugin: 'compact',
+      compactionId,
+    }),
+  }) as unknown as UserMessage
+}
+
 function newToolResultMessage(text: string, callId = crypto.randomUUID() as ToolCallId): ToolResultMessage {
   return Object.freeze({
     id: crypto.randomUUID() as MessageId,
@@ -245,16 +322,33 @@ function closedTurns(events: readonly SessionEvent[], includeOpen = true): Close
     }
     if (current === undefined) {
       if (
+        event.type === 'compaction/start' ||
+        event.type === 'compaction/summary' ||
+        event.type === 'compaction/end' ||
+        isCompactionCheckpoint(event)
+      ) {
+        if (result.length > 0) {
+          const last = result[result.length - 1]!
+          last.events.push(event)
+          last.endSeq = Math.max(last.endSeq === Number.POSITIVE_INFINITY ? 0 : last.endSeq, event.seq)
+          continue
+        }
+      }
+      if (
         event.type === 'system/message' ||
         event.type === 'user/message' ||
         event.type === 'assistant/message' ||
         event.type === 'tool/result' ||
         event.type === 'request/header' ||
-        event.type === 'request/context'
+        event.type === 'request/context' ||
+        event.type === 'compaction/start' ||
+        event.type === 'compaction/summary' ||
+        event.type === 'compaction/end'
       ) {
+        const lastTurn = result[result.length - 1]?.turn ?? 0
         const turnNum = typeof (event.data as { turn?: unknown })?.turn === 'number'
           ? (event.data as { turn: number }).turn
-          : 1
+          : (lastTurn > 0 ? lastTurn + 1 : 1)
         current = {
           turn: turnNum,
           startSeq: event.seq,
@@ -264,6 +358,14 @@ function closedTurns(events: readonly SessionEvent[], includeOpen = true): Close
       } else {
         continue
       }
+    }
+    if (
+      event.type === 'compaction/start' ||
+      event.type === 'compaction/summary' ||
+      event.type === 'compaction/end'
+    ) {
+      current.events.push(event)
+      continue
     }
     if (event.type === 'user/message') {
       if (event.data.source.kind === 'user' && current.user === undefined) {
@@ -345,6 +447,33 @@ function editableMessages(turns: readonly ClosedTurn[]): EditableMessageBlock[] 
           })
         }
       } else if (event.type === 'user/message') {
+        if (isCompactionCheckpoint(event)) {
+          const compactionId = (event.data.source as any)?.compactionId
+          const summaryEvent = turn.events.findLast(
+            (e): e is SessionEvent<'compaction/summary'> =>
+              e.type === 'compaction/summary' && (e.data as any)?.compactionId === compactionId,
+          )
+          const summaryText = (summaryEvent?.data.summary && Array.isArray(summaryEvent.data.summary))
+            ? summaryEvent.data.summary
+                .filter(b => b.type === 'text')
+                .map(b => b.text)
+                .join('\n')
+            : extractCompactionSummary(event.data.content)
+          result.push({
+            key: `${String(event.seq)}:compact`,
+            turn: turn.turn,
+            eventSeq: event.seq,
+            blockIndex: 0,
+            kind: 'compaction',
+            text: summaryText,
+            time: event.time,
+            ...compactionId ? { compactionId } : {},
+            ...summaryEvent?.seq !== undefined ? { summaryEventSeq: summaryEvent.seq } : {},
+            ...summaryEvent?.data.shadowedSeqs ? { shadowedItemCount: summaryEvent.data.shadowedSeqs.length } : {},
+            ...summaryEvent?.data.shadowedTokenCount !== undefined ? { shadowedTokenCount: summaryEvent.data.shadowedTokenCount } : {},
+          })
+          continue
+        }
         const isDirectUser = event.data.source.kind === 'user'
         for (const [blockIndex, block] of event.data.content.entries()) {
           if (block.type !== 'text') continue
@@ -466,6 +595,39 @@ function editPlan(
   if (event === undefined) throw new Error('所选消息不存在或不可编辑。')
 
   if (event.type === 'user/message') {
+    if (isCompactionCheckpoint(event)) {
+      const summaryText = extractCompactionSummary(event.data.content)
+      const compactionId = (event.data.source as any)?.compactionId ?? crypto.randomUUID()
+      const newMsg = createCompactionUserMessage(operation.text, compactionId)
+      const startEvent = events.findLast(e => e.type === 'compaction/start' && e.seq < event.seq)
+      const boundary = startEvent ? startEvent.seq - 1 : event.seq - 1
+      const later = operation.cascade === 'preserve' ? downstreamUsers(turns, turnIndex + 1) : []
+      return {
+        boundary,
+        version: pairVersionEffect(operation.sessionId, {
+          operation: 'edit',
+          cascade: operation.cascade,
+          targetTurn: turn.turn,
+          targetEventSeq: event.seq,
+          targetBlockIndex: operation.blockIndex,
+          blockKind: 'compaction',
+          before: summaryText,
+          after: operation.text,
+        }),
+        manualTurns: [{
+          turn: turn.turn,
+          items: [{
+            kind: 'compaction',
+            compaction: {
+              compactionId,
+              summaryText: operation.text,
+              userMessage: newMsg,
+            },
+          }],
+        }],
+        queuedUsers: later,
+      }
+    }
     const before = event.data.content[operation.blockIndex]
     if (before?.type !== 'text') throw new Error('所选用户消息块不是文本。')
     const edited = cloneUser(event.data, replaceTextBlock(event.data.content, operation.blockIndex, operation.text))
@@ -954,6 +1116,30 @@ function groupForkRowsToTurns(
         toolResult,
         toolResultFallbackAssistant: fallbackAssistant,
       })
+    } else if (row.kind === 'compaction') {
+      flushAssistant(current)
+      const origEvent = sourceEvent(row, events)
+      const compactionId = row.compactionId
+        ?? (origEvent?.type === 'user/message' ? (origEvent.data.source as any)?.compactionId : undefined)
+        ?? crypto.randomUUID()
+      const origSummaryEvent = events.findLast(
+        (e): e is SessionEvent<'compaction/summary'> =>
+          e.type === 'compaction/summary' && (e.data as any)?.compactionId === compactionId,
+      )
+      const userMessage: UserMessage = (origEvent?.type === 'user/message' && isCompactionCheckpoint(origEvent) && row.text === extractCompactionSummary(origEvent.data.content))
+        ? origEvent.data
+        : createCompactionUserMessage(row.text, compactionId)
+      current.items.push({
+        kind: 'compaction',
+        compaction: {
+          compactionId,
+          summaryText: row.text,
+          userMessage,
+          ...origSummaryEvent?.data.shadowedTokenCount !== undefined
+            ? { shadowedTokenCount: origSummaryEvent.data.shadowedTokenCount }
+            : {},
+        },
+      })
     }
   }
 
@@ -1290,6 +1476,46 @@ function appendManualTurn(
       })
       pendingCalls.delete(callId)
       if (pendingCalls.size === 0) closeStep()
+    } else if (item.kind === 'compaction' && item.compaction !== undefined) {
+      closeStep()
+      const { compactionId, summaryText, userMessage, shadowedTokenCount } = item.compaction
+      const currentSurface = foldSurface(events)
+      const nodesToShadow = currentSurface.nodes.filter(seq => events[seq]?.type !== 'system/message')
+
+      const startSeq = nodesToShadow.length > 0 ? nodesToShadow[0]! : events.length
+      const endSeq = nodesToShadow.length > 0 ? nodesToShadow[nodesToShadow.length - 1]! : events.length
+      const shadowedSeqs = nodesToShadow
+
+      appendLogSeedEvent(events, 'compaction/start', {
+        compactionId,
+        turn,
+      } as any)
+
+      appendLogSeedEvent(events, 'compaction/summary', {
+        compactionId,
+        summary: [{ type: 'text', text: summaryText }],
+        shadowedRange: { start: startSeq as SessionSeq, end: endSeq as SessionSeq },
+        shadowedSeqs: shadowedSeqs as SessionSeq[],
+        shadowedTokenCount: shadowedTokenCount ?? 0,
+        provider: (userMessage.source as any)?.provider ?? 'default',
+        model: (userMessage.source as any)?.model ?? 'default',
+      } as any)
+
+      if (shadowedSeqs.length > 0) {
+        appendSurfaceSeedEvent(events, 'user/message', userMessage, {
+          surfaceOp: { op: 'replace', startSeq: startSeq as SessionSeq, endSeq: endSeq as SessionSeq },
+          sourceEventSeqs: [events[events.length - 2]!.seq, events[events.length - 1]!.seq, ...shadowedSeqs],
+        })
+      } else {
+        appendSurfaceSeedEvent(events, 'user/message', userMessage, {
+          surfaceOp: 'append',
+        })
+      }
+
+      appendLogSeedEvent(events, 'compaction/end', {
+        compactionId,
+        turn,
+      } as any)
     }
   }
 
@@ -1866,7 +2092,8 @@ function blockKindOf(value: unknown, label: string): EditableBlockKind {
     value === 'system' ||
     value === 'tool.call' ||
     value === 'tool.result' ||
-    value === 'context.inject'
+    value === 'context.inject' ||
+    value === 'compaction'
   ) return value
   throw new TypeError(`${label} 消息块类型无效。`)
 }
@@ -1935,6 +2162,7 @@ function decodeOperation(value: unknown): MessageEditOperation {
         if (typeof item['text'] !== 'string') throw new TypeError(`rows[${index}].text 必须是字符串。`)
         const toolName = typeof item['toolName'] === 'string' ? item['toolName'] : undefined
         const callId = typeof item['callId'] === 'string' ? item['callId'] : undefined
+        const compactionId = typeof item['compactionId'] === 'string' ? item['compactionId'] : undefined
         const sourceEventSeq = item['sourceEventSeq'] === undefined
           ? undefined
           : integerOf(item['sourceEventSeq'], `rows[${index}].sourceEventSeq`)
@@ -1946,6 +2174,7 @@ function decodeOperation(value: unknown): MessageEditOperation {
           text: item['text'],
           ...toolName ? { toolName } : {},
           ...callId ? { callId } : {},
+          ...compactionId ? { compactionId } : {},
           ...sourceEventSeq === undefined ? {} : { sourceEventSeq },
           ...sourceBlockIndex === undefined ? {} : { sourceBlockIndex },
         }

@@ -105,7 +105,8 @@ function blockKind(value: unknown): EditableBlockKind {
     value !== 'system' &&
     value !== 'tool.call' &&
     value !== 'tool.result' &&
-    value !== 'context.inject'
+    value !== 'context.inject' &&
+    value !== 'compaction'
   ) {
     throw new TypeError('消息块类型无效')
   }
@@ -124,6 +125,10 @@ function decodeMessage(value: unknown, index: number): EditableMessageBlock {
     time: numberValue(row['time'], '消息 time'),
     ...typeof row['toolName'] === 'string' ? { toolName: row['toolName'] } : {},
     ...typeof row['callId'] === 'string' ? { callId: row['callId'] } : {},
+    ...typeof row['compactionId'] === 'string' ? { compactionId: row['compactionId'] } : {},
+    ...typeof row['summaryEventSeq'] === 'number' ? { summaryEventSeq: row['summaryEventSeq'] } : {},
+    ...typeof row['shadowedItemCount'] === 'number' ? { shadowedItemCount: row['shadowedItemCount'] } : {},
+    ...typeof row['shadowedTokenCount'] === 'number' ? { shadowedTokenCount: row['shadowedTokenCount'] } : {},
   }
 }
 
@@ -328,6 +333,7 @@ export class MessageEditController {
           text: row.text,
           ...row.toolName === undefined ? {} : { toolName: row.toolName },
           ...row.callId === undefined ? {} : { callId: row.callId },
+          ...row.compactionId === undefined ? {} : { compactionId: row.compactionId },
           ...row.sourceEventSeq === undefined ? {} : { sourceEventSeq: row.sourceEventSeq },
           ...row.sourceBlockIndex === undefined ? {} : { sourceBlockIndex: row.sourceBlockIndex },
         })),

@@ -19,6 +19,7 @@ export type EditableBlockKind =
   | 'tool.call'
   | 'tool.result'
   | 'context.inject'
+  | 'compaction'
 
 /** Current durable event schema for structurally paired version effects. */
 export const MESSAGE_EDIT_VERSION_SCHEMA = 2
@@ -78,6 +79,10 @@ export interface EditableMessageBlock {
   time: number
   toolName?: string
   callId?: string
+  compactionId?: string
+  summaryEventSeq?: number
+  shadowedItemCount?: number
+  shadowedTokenCount?: number
 }
 
 /** One completed message-triggered turn eligible for Retry. */
@@ -190,6 +195,7 @@ export interface ForkMessageRow {
   text: string
   toolName?: string
   callId?: string
+  compactionId?: string
   /** Provenance of an original Timeline row. The host uses it to clone the
    * complete source message/event when it still matches; stale provenance
    * falls back to rebuilding the row from text. */

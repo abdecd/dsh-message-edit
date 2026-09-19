@@ -26,6 +26,9 @@ interface DraftRow {
   added: boolean
   toolName?: string
   callId?: string
+  compactionId?: string
+  shadowedItemCount?: number
+  shadowedTokenCount?: number
   sourceEventSeq?: number
   sourceBlockIndex?: number
 }
@@ -62,6 +65,7 @@ const BLOCK_LABEL: Record<EditableBlockKind, string> = {
   'tool.call': '工具调用',
   'tool.result': '工具返回',
   'context.inject': '上下文/Skill 注入',
+  compaction: '压缩节点',
 }
 
 const OPERATION_LABEL: Record<VersionOperation, string> = {
@@ -143,6 +147,10 @@ function buildSections(
     const userRow = section.rows.find(row => row.kind === 'user')
     const head = section.rows[0]
     section.preview = (userRow ?? head)?.text || '（空内容）'
+    if (userRow === undefined && section.rows.every(r => r.kind === 'compaction')) {
+      const turnNum = section.rows[0]?.turn
+      section.turnLabel = turnNum !== undefined ? `回合 ${String(turnNum)} · 压缩` : '压缩节点'
+    }
     
     // Check if eligible for retry
     if (userRow && !userRow.added && userRow.turn !== undefined) {
@@ -302,6 +310,13 @@ function MessageCard({
               onChange={() => { onSelectToggle(row) }}
             />
             <span className={styles['kindBadge']} data-kind={kindDataAttr}>{badgeLabel}</span>
+        {row.kind === 'compaction' && (row.shadowedItemCount !== undefined || row.shadowedTokenCount !== undefined || baseline?.shadowedItemCount !== undefined || baseline?.shadowedTokenCount !== undefined) && (
+          <span className={styles['compactionStats']}>
+            {(row.shadowedItemCount ?? baseline?.shadowedItemCount) !== undefined ? `已压缩 ${String(row.shadowedItemCount ?? baseline?.shadowedItemCount)} 项` : ''}
+            {(row.shadowedItemCount ?? baseline?.shadowedItemCount) !== undefined && (row.shadowedTokenCount ?? baseline?.shadowedTokenCount) !== undefined ? ' · ' : ''}
+            {(row.shadowedTokenCount ?? baseline?.shadowedTokenCount) !== undefined ? `释放约 ${String(row.shadowedTokenCount ?? baseline?.shadowedTokenCount)} tokens` : ''}
+          </span>
+        )}
         {row.added
           ? <span className={styles['newBadge']}>新增</span>
           : edited
@@ -439,6 +454,9 @@ export function MessageEditTimelineView({
       added: false,
       ...message.toolName !== undefined ? { toolName: message.toolName } : {},
       ...message.callId !== undefined ? { callId: message.callId } : {},
+      ...message.compactionId !== undefined ? { compactionId: message.compactionId } : {},
+      ...message.shadowedItemCount !== undefined ? { shadowedItemCount: message.shadowedItemCount } : {},
+      ...message.shadowedTokenCount !== undefined ? { shadowedTokenCount: message.shadowedTokenCount } : {},
       sourceEventSeq: message.eventSeq,
       sourceBlockIndex: message.blockIndex,
     })),
@@ -1150,6 +1168,7 @@ export function MessageEditTimelineView({
       text: row.text,
       ...row.toolName ? { toolName: row.toolName } : {},
       ...row.callId ? { callId: row.callId } : {},
+      ...row.compactionId ? { compactionId: row.compactionId } : {},
       ...row.sourceEventSeq !== undefined ? { sourceEventSeq: row.sourceEventSeq } : {},
       ...row.sourceBlockIndex !== undefined ? { sourceBlockIndex: row.sourceBlockIndex } : {},
     }))

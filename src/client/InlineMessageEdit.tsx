@@ -18,6 +18,7 @@ const BLOCK_TITLE: Record<EditableMessageBlock['kind'], string> = {
   'tool.call': '编辑工具调用',
   'tool.result': '编辑工具返回',
   'context.inject': '编辑注入上下文',
+  compaction: '编辑压缩摘要',
 }
 
 const STYLE = {
