@@ -599,6 +599,10 @@ function editPlan(
       const summaryText = extractCompactionSummary(event.data.content)
       const compactionId = (event.data.source as any)?.compactionId ?? crypto.randomUUID()
       const newMsg = createCompactionUserMessage(operation.text, compactionId)
+      const origSummaryEvent = events.findLast(
+        (e): e is SessionEvent<'compaction/summary'> =>
+          e.type === 'compaction/summary' && (e.data as any)?.compactionId === compactionId,
+      )
       const startEvent = events.findLast(e => e.type === 'compaction/start' && e.seq < event.seq)
       const boundary = startEvent ? startEvent.seq - 1 : event.seq - 1
       const later = operation.cascade === 'preserve' ? downstreamUsers(turns, turnIndex + 1) : []
@@ -622,6 +626,9 @@ function editPlan(
               compactionId,
               summaryText: operation.text,
               userMessage: newMsg,
+              ...origSummaryEvent?.data.shadowedTokenCount !== undefined
+                ? { shadowedTokenCount: origSummaryEvent.data.shadowedTokenCount }
+                : {},
             },
           }],
         }],
@@ -1480,42 +1487,46 @@ function appendManualTurn(
       closeStep()
       const { compactionId, summaryText, userMessage, shadowedTokenCount } = item.compaction
       const currentSurface = foldSurface(events)
-      const nodesToShadow = currentSurface.nodes.filter(seq => events[seq]?.type !== 'system/message')
+      const headSeq = currentSurface.nodes[0]
+      const headEvent = headSeq !== undefined ? (events[headSeq] ?? events.find(e => e.seq === headSeq)) : undefined
+      const isSystemHead = headEvent?.type === 'system/message'
+      const firstIdx = isSystemHead ? 1 : 0
+      const nodesToShadow = currentSurface.nodes.slice(firstIdx)
 
-      const startSeq = nodesToShadow.length > 0 ? nodesToShadow[0]! : events.length
-      const endSeq = nodesToShadow.length > 0 ? nodesToShadow[nodesToShadow.length - 1]! : events.length
-      const shadowedSeqs = nodesToShadow
+      if (nodesToShadow.length > 0) {
+        const startSeq = nodesToShadow[0]!
+        const endSeq = nodesToShadow[nodesToShadow.length - 1]!
+        const shadowedSeqs = nodesToShadow
 
-      appendLogSeedEvent(events, 'compaction/start', {
-        compactionId,
-        turn,
-      } as any)
+        appendLogSeedEvent(events, 'compaction/start', {
+          compactionId,
+          turn,
+        } as any)
 
-      appendLogSeedEvent(events, 'compaction/summary', {
-        compactionId,
-        summary: [{ type: 'text', text: summaryText }],
-        shadowedRange: { start: startSeq as SessionSeq, end: endSeq as SessionSeq },
-        shadowedSeqs: shadowedSeqs as SessionSeq[],
-        shadowedTokenCount: shadowedTokenCount ?? 0,
-        provider: (userMessage.source as any)?.provider ?? 'default',
-        model: (userMessage.source as any)?.model ?? 'default',
-      } as any)
+        appendLogSeedEvent(events, 'compaction/summary', {
+          compactionId,
+          summary: [{ type: 'text', text: summaryText }],
+          shadowedRange: { start: startSeq as SessionSeq, end: endSeq as SessionSeq },
+          shadowedSeqs: shadowedSeqs as SessionSeq[],
+          shadowedTokenCount: shadowedTokenCount ?? 0,
+          provider: (userMessage.source as any)?.provider ?? 'default',
+          model: (userMessage.source as any)?.model ?? 'default',
+        } as any)
 
-      if (shadowedSeqs.length > 0) {
         appendSurfaceSeedEvent(events, 'user/message', userMessage, {
           surfaceOp: { op: 'replace', startSeq: startSeq as SessionSeq, endSeq: endSeq as SessionSeq },
           sourceEventSeqs: [events[events.length - 2]!.seq, events[events.length - 1]!.seq, ...shadowedSeqs],
         })
+
+        appendLogSeedEvent(events, 'compaction/end', {
+          compactionId,
+          turn,
+        } as any)
       } else {
         appendSurfaceSeedEvent(events, 'user/message', userMessage, {
           surfaceOp: 'append',
         })
       }
-
-      appendLogSeedEvent(events, 'compaction/end', {
-        compactionId,
-        turn,
-      } as any)
     }
   }
 

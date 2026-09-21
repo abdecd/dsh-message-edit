@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { foldSurface } from '@deepseek-ai/dsh-session'
 import * as messageEdit from '../index.mjs'
 
 test('retry resolves the durable event mapping rather than a rendered turn position', () => {
@@ -856,4 +857,316 @@ test('edit operation on compaction node updates summary and rebuilds compaction'
   assert.equal(followups.length, 1)
   assert.equal(followups[0].content[0].text, 'Followup prompt')
 })
+
+test('compaction replacement includes intermediate system messages in sourceEventSeqs and satisfies foldSurface', async () => {
+  const sourceHeader = { id: 'source-edit-sys-cmp', version: 3, createdAt: 1, cwd: '/tmp' }
+  const sourceEvents = [
+    {
+      type: 'system/message', seq: 0, time: 9,
+      data: { turn: 0, step: 0, message: { id: 'sys0', role: 'system', content: [{ type: 'text', text: 'System head' }] } },
+      surfaceOp: 'append',
+    },
+    { type: 'turn/start', seq: 1, time: 10, data: { turn: 1 } },
+    {
+      type: 'user/message', seq: 2, time: 11,
+      data: { id: 'u1', role: 'user', content: [{ type: 'text', text: 'Prompt 1' }], source: { kind: 'user' } },
+      surfaceOp: 'append',
+    },
+    { type: 'request/header', seq: 3, time: 12, data: { header: { config: { provider: 'test-p', model: 'test-m' } } } },
+    {
+      type: 'assistant/message', seq: 4, time: 13,
+      data: { turn: 1, step: 1, message: { id: 'a1', role: 'assistant', content: [{ type: 'text', text: 'Reply 1' }], source: { kind: 'model', provider: 'test-p', model: 'test-m' } } },
+      surfaceOp: 'append',
+    },
+    {
+      type: 'system/message', seq: 5, time: 14,
+      data: { turn: 1, step: 2, message: { id: 'sys-mid-1', role: 'system', content: [{ type: 'text', text: 'Intermediate system prompt 1 (like 160)' }] } },
+      surfaceOp: 'append',
+    },
+    { type: 'turn/end', seq: 6, time: 15, data: { turn: 1, reason: { kind: 'completed' } } },
+    { type: 'turn/start', seq: 7, time: 16, data: { turn: 2 } },
+    {
+      type: 'user/message', seq: 8, time: 17,
+      data: { id: 'u2', role: 'user', content: [{ type: 'text', text: 'Prompt 2' }], source: { kind: 'user' } },
+      surfaceOp: 'append',
+    },
+    {
+      type: 'assistant/message', seq: 9, time: 18,
+      data: { turn: 2, step: 1, message: { id: 'a2', role: 'assistant', content: [{ type: 'text', text: 'Reply 2' }], source: { kind: 'model', provider: 'test-p', model: 'test-m' } } },
+      surfaceOp: 'append',
+    },
+    {
+      type: 'system/message', seq: 10, time: 19,
+      data: { turn: 2, step: 2, message: { id: 'sys-mid-2', role: 'system', content: [{ type: 'text', text: 'Intermediate system prompt 2 (like 251)' }] } },
+      surfaceOp: 'append',
+    },
+    { type: 'turn/end', seq: 11, time: 20, data: { turn: 2, reason: { kind: 'completed' } } },
+    {
+      type: 'compaction/start', seq: 12, time: 21,
+      data: { compactionId: 'cmp-sys', turn: 2 },
+    },
+    {
+      type: 'compaction/summary', seq: 13, time: 22,
+      data: {
+        compactionId: 'cmp-sys',
+        summary: [{ type: 'text', text: 'Summary of turns 1 and 2' }],
+        shadowedRange: { start: 2, end: 10 },
+        shadowedSeqs: [2, 4, 5, 8, 9, 10],
+        shadowedTokenCount: 200,
+        provider: 'test-p',
+        model: 'test-m',
+      },
+    },
+    {
+      type: 'user/message', seq: 14, time: 23,
+      data: {
+        id: 'u-cmp',
+        role: 'user',
+        content: [{ type: 'text', text: 'This is an automatically generated checkpoint...\n\n<summary>\nSummary of turns 1 and 2\n</summary>' }],
+        source: { kind: 'plugin', plugin: 'compact', compactionId: 'cmp-sys' },
+      },
+      surfaceOp: { op: 'replace', startSeq: 2, endSeq: 10 },
+      sourceEventSeqs: [12, 13, 2, 4, 5, 8, 9, 10],
+    },
+    {
+      type: 'compaction/end', seq: 15, time: 24,
+      data: { compactionId: 'cmp-sys', turn: 2 },
+    },
+  ]
+
+  let routeHandler
+  let created
+  const followups = []
+  const sourceSession = {
+    id: 'source-edit-sys-cmp',
+    header: sourceHeader,
+    snapshotEvents: () => sourceEvents,
+  }
+  const sourceAgent = {
+    session: sourceSession,
+    options: { provider: 'test-p', model: 'test-m' },
+    runMaintenance: async fn => fn(sourceAgent),
+  }
+  const childSession = {
+    id: 'child-edit-sys-cmp',
+    header: { id: 'child-edit-sys-cmp', version: 3, createdAt: 30 },
+    events: [],
+    snapshotEvents() { return this.events },
+  }
+
+  const ctx = {
+    effect: fn => fn(),
+    webServer: { register: entry => { routeHandler = entry.handler } },
+    connection: { requestRejection: () => undefined },
+    agents: {
+      get: () => sourceAgent,
+      create: async options => {
+        created = options
+        return {
+          agent: {
+            session: childSession,
+            followup: message => followups.push(message),
+          },
+          dispose: async () => {},
+        }
+      },
+    },
+    sessions: { flush: async () => {} },
+    workspaceRegistry: { list: () => [] },
+    get: () => undefined,
+  }
+
+  messageEdit.apply(ctx)
+
+  const editPayload = {
+    action: 'edit',
+    sessionId: 'source-edit-sys-cmp',
+    eventSeq: 14,
+    blockIndex: 0,
+    text: 'Updated summary of turns 1 and 2',
+    cascade: 'preserve',
+  }
+
+  const req = {
+    method: 'POST',
+    url: '/message-edit',
+    headers: { host: '127.0.0.1' },
+    on(event, listener) {
+      if (event === 'data') listener(Buffer.from(JSON.stringify(editPayload)))
+      if (event === 'end') queueMicrotask(listener)
+    },
+  }
+
+  let status
+  let body
+  await routeHandler(req, {
+    writeHead: value => { status = value },
+    end: value => { body = JSON.parse(value) },
+  })
+
+  assert.equal(status, 200, JSON.stringify(body))
+  assert.ok(created, 'Child agent should be created')
+
+  // Find the compaction user message in the seed
+  const cmpEvent = created.seed.find(e => e.type === 'user/message' && e.data.source?.plugin === 'compact')
+  assert.ok(cmpEvent, 'Compaction user message must exist')
+  assert.equal(cmpEvent.surfaceOp.op, 'replace')
+  assert.equal(cmpEvent.surfaceOp.startSeq, 2)
+  assert.equal(cmpEvent.surfaceOp.endSeq, 10)
+
+  // Verify intermediate system messages 5 and 10 are INCLUDED in sourceEventSeqs
+  assert.ok(cmpEvent.sourceEventSeqs.includes(5), 'sourceEventSeqs must include intermediate system message at seq 5')
+  assert.ok(cmpEvent.sourceEventSeqs.includes(10), 'sourceEventSeqs must include intermediate system message at seq 10')
+  // Surface node 0 (system head) must NOT be shadowed
+  assert.ok(!cmpEvent.sourceEventSeqs.includes(0), 'System head node 0 must not be shadowed')
+
+  // Verify the entire seed folds cleanly without surface validation errors
+  const folded = foldSurface(created.seed)
+  assert.deepEqual(folded.nodes, [0, cmpEvent.seq], 'Surface should consist of system head and the replacement compaction node')
+})
+
+test('fork with compaction and intermediate system messages satisfies foldSurface', async () => {
+  const sourceHeader = { id: 'source-fork-sys-cmp', version: 3, createdAt: 1, cwd: '/tmp' }
+  const sourceEvents = [
+    {
+      type: 'system/message', seq: 0, time: 9,
+      data: { turn: 0, step: 0, message: { id: 'sys0', role: 'system', content: [{ type: 'text', text: 'System head' }] } },
+      surfaceOp: 'append',
+    },
+    { type: 'turn/start', seq: 1, time: 10, data: { turn: 1 } },
+    {
+      type: 'user/message', seq: 2, time: 11,
+      data: { id: 'u1', role: 'user', content: [{ type: 'text', text: 'Prompt 1' }], source: { kind: 'user' } },
+      surfaceOp: 'append',
+    },
+    { type: 'request/header', seq: 3, time: 12, data: { header: { config: { provider: 'test-p', model: 'test-m' } } } },
+    {
+      type: 'assistant/message', seq: 4, time: 13,
+      data: { turn: 1, step: 1, message: { id: 'a1', role: 'assistant', content: [{ type: 'text', text: 'Reply 1' }], source: { kind: 'model', provider: 'test-p', model: 'test-m' } } },
+      surfaceOp: 'append',
+    },
+    {
+      type: 'system/message', seq: 5, time: 14,
+      data: { turn: 1, step: 2, message: { id: 'sys-mid-1', role: 'system', content: [{ type: 'text', text: 'Intermediate system prompt 1' }] } },
+      surfaceOp: 'append',
+    },
+    { type: 'turn/end', seq: 6, time: 15, data: { turn: 1, reason: { kind: 'completed' } } },
+    {
+      type: 'compaction/start', seq: 7, time: 21,
+      data: { compactionId: 'cmp-sys', turn: 1 },
+    },
+    {
+      type: 'compaction/summary', seq: 8, time: 22,
+      data: {
+        compactionId: 'cmp-sys',
+        summary: [{ type: 'text', text: 'Summary' }],
+        shadowedRange: { start: 2, end: 5 },
+        shadowedSeqs: [2, 4, 5],
+        shadowedTokenCount: 100,
+        provider: 'test-p',
+        model: 'test-m',
+      },
+    },
+    {
+      type: 'user/message', seq: 9, time: 23,
+      data: {
+        id: 'u-cmp',
+        role: 'user',
+        content: [{ type: 'text', text: 'This is an automatically generated checkpoint...\n\n<summary>\nSummary\n</summary>' }],
+        source: { kind: 'plugin', plugin: 'compact', compactionId: 'cmp-sys' },
+      },
+      surfaceOp: { op: 'replace', startSeq: 2, endSeq: 5 },
+      sourceEventSeqs: [7, 8, 2, 4, 5],
+    },
+    {
+      type: 'compaction/end', seq: 10, time: 24,
+      data: { compactionId: 'cmp-sys', turn: 1 },
+    },
+  ]
+
+  let routeHandler
+  let created
+  const followups = []
+  const sourceSession = {
+    id: 'source-fork-sys-cmp',
+    header: sourceHeader,
+    snapshotEvents: () => sourceEvents,
+  }
+  const sourceAgent = {
+    session: sourceSession,
+    options: { provider: 'test-p', model: 'test-m' },
+    runMaintenance: async fn => fn(sourceAgent),
+  }
+  const childSession = {
+    id: 'child-fork-sys-cmp',
+    header: { id: 'child-fork-sys-cmp', version: 3, createdAt: 30 },
+    events: [],
+    snapshotEvents() { return this.events },
+  }
+
+  const ctx = {
+    effect: fn => fn(),
+    webServer: { register: entry => { routeHandler = entry.handler } },
+    connection: { requestRejection: () => undefined },
+    agents: {
+      get: () => sourceAgent,
+      create: async options => {
+        created = options
+        return {
+          agent: {
+            session: childSession,
+            followup: message => followups.push(message),
+          },
+          dispose: async () => {},
+        }
+      },
+    },
+    sessions: { flush: async () => {} },
+    workspaceRegistry: { list: () => [] },
+    get: () => undefined,
+  }
+
+  messageEdit.apply(ctx)
+
+  const forkPayload = {
+    action: 'fork',
+    sessionId: 'source-fork-sys-cmp',
+    rows: [
+      { kind: 'user', text: 'Prompt 1', sourceEventSeq: 2 },
+      { kind: 'assistant.response', text: 'Reply 1', sourceEventSeq: 4 },
+      { kind: 'system', text: 'Intermediate system prompt 1', sourceEventSeq: 5 },
+      { kind: 'compaction', text: 'Forked summary', compactionId: 'cmp-sys', sourceEventSeq: 9 },
+      { kind: 'user', text: 'New prompt after fork' },
+    ],
+  }
+
+  const req = {
+    method: 'POST',
+    url: '/message-edit',
+    headers: { host: '127.0.0.1' },
+    on(event, listener) {
+      if (event === 'data') listener(Buffer.from(JSON.stringify(forkPayload)))
+      if (event === 'end') queueMicrotask(listener)
+    },
+  }
+
+  let status
+  let body
+  await routeHandler(req, {
+    writeHead: value => { status = value },
+    end: value => { body = JSON.parse(value) },
+  })
+
+  assert.equal(status, 200, JSON.stringify(body))
+  assert.ok(created, 'Child agent should be created')
+
+  // Find compaction user message in seed
+  const cmpEvent = created.seed.find(e => e.type === 'user/message' && e.data.source?.plugin === 'compact')
+  assert.ok(cmpEvent, 'Compaction user message must exist')
+
+  // Verify foldSurface succeeds on created.seed
+  const folded = foldSurface(created.seed)
+  assert.ok(folded.nodes.includes(cmpEvent.seq))
+})
+
 

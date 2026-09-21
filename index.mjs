@@ -363,6 +363,7 @@ function editPlan(operation, turns, events, fallback, preferred) {
 			const summaryText = extractCompactionSummary(event.data.content);
 			const compactionId = event.data.source?.compactionId ?? crypto.randomUUID();
 			const newMsg = createCompactionUserMessage(operation.text, compactionId);
+			const origSummaryEvent = events.findLast((e) => e.type === "compaction/summary" && e.data?.compactionId === compactionId);
 			const startEvent = events.findLast((e) => e.type === "compaction/start" && e.seq < event.seq);
 			const boundary = startEvent ? startEvent.seq - 1 : event.seq - 1;
 			const later = operation.cascade === "preserve" ? downstreamUsers(turns, turnIndex + 1) : [];
@@ -385,7 +386,8 @@ function editPlan(operation, turns, events, fallback, preferred) {
 						compaction: {
 							compactionId,
 							summaryText: operation.text,
-							userMessage: newMsg
+							userMessage: newMsg,
+							...origSummaryEvent?.data.shadowedTokenCount !== void 0 ? { shadowedTokenCount: origSummaryEvent.data.shadowedTokenCount } : {}
 						}
 					}]
 				}],
@@ -1083,46 +1085,50 @@ function appendManualTurn(events, manual, emittedCallIds) {
 	} else if (item.kind === "compaction" && item.compaction !== void 0) {
 		closeStep();
 		const { compactionId, summaryText, userMessage, shadowedTokenCount } = item.compaction;
-		const nodesToShadow = foldSurface(events).nodes.filter((seq) => events[seq]?.type !== "system/message");
-		const startSeq = nodesToShadow.length > 0 ? nodesToShadow[0] : events.length;
-		const endSeq = nodesToShadow.length > 0 ? nodesToShadow[nodesToShadow.length - 1] : events.length;
-		const shadowedSeqs = nodesToShadow;
-		appendLogSeedEvent(events, "compaction/start", {
-			compactionId,
-			turn
-		});
-		appendLogSeedEvent(events, "compaction/summary", {
-			compactionId,
-			summary: [{
-				type: "text",
-				text: summaryText
-			}],
-			shadowedRange: {
-				start: startSeq,
-				end: endSeq
-			},
-			shadowedSeqs,
-			shadowedTokenCount: shadowedTokenCount ?? 0,
-			provider: userMessage.source?.provider ?? "default",
-			model: userMessage.source?.model ?? "default"
-		});
-		if (shadowedSeqs.length > 0) appendSurfaceSeedEvent(events, "user/message", userMessage, {
-			surfaceOp: {
-				op: "replace",
-				startSeq,
-				endSeq
-			},
-			sourceEventSeqs: [
-				events[events.length - 2].seq,
-				events[events.length - 1].seq,
-				...shadowedSeqs
-			]
-		});
-		else appendSurfaceSeedEvent(events, "user/message", userMessage, { surfaceOp: "append" });
-		appendLogSeedEvent(events, "compaction/end", {
-			compactionId,
-			turn
-		});
+		const currentSurface = foldSurface(events);
+		const headSeq = currentSurface.nodes[0];
+		const firstIdx = (headSeq !== void 0 ? events[headSeq] ?? events.find((e) => e.seq === headSeq) : void 0)?.type === "system/message" ? 1 : 0;
+		const nodesToShadow = currentSurface.nodes.slice(firstIdx);
+		if (nodesToShadow.length > 0) {
+			const startSeq = nodesToShadow[0];
+			const endSeq = nodesToShadow[nodesToShadow.length - 1];
+			const shadowedSeqs = nodesToShadow;
+			appendLogSeedEvent(events, "compaction/start", {
+				compactionId,
+				turn
+			});
+			appendLogSeedEvent(events, "compaction/summary", {
+				compactionId,
+				summary: [{
+					type: "text",
+					text: summaryText
+				}],
+				shadowedRange: {
+					start: startSeq,
+					end: endSeq
+				},
+				shadowedSeqs,
+				shadowedTokenCount: shadowedTokenCount ?? 0,
+				provider: userMessage.source?.provider ?? "default",
+				model: userMessage.source?.model ?? "default"
+			});
+			appendSurfaceSeedEvent(events, "user/message", userMessage, {
+				surfaceOp: {
+					op: "replace",
+					startSeq,
+					endSeq
+				},
+				sourceEventSeqs: [
+					events[events.length - 2].seq,
+					events[events.length - 1].seq,
+					...shadowedSeqs
+				]
+			});
+			appendLogSeedEvent(events, "compaction/end", {
+				compactionId,
+				turn
+			});
+		} else appendSurfaceSeedEvent(events, "user/message", userMessage, { surfaceOp: "append" });
 	}
 	closeStep();
 	appendLogSeedEvent(events, "turn/end", {
