@@ -1,6 +1,6 @@
 import { installModelSelection } from "@deepseek-ai/dsh-agent";
 import { foldSurface } from "@deepseek-ai/dsh-session";
-import { createSystemMessage } from "@deepseek-ai/dsh-llm";
+import { createSystemMessage, createToolResultMessage } from "@deepseek-ai/dsh-llm";
 //#region src/shared.ts
 /** Same-origin endpoint owned by the Message Edit host plugin. */
 const MESSAGE_EDIT_PATH = "/message-edit";
@@ -54,7 +54,7 @@ function cloneUser(message, content = structuredClone(message.content)) {
 	return Object.freeze({
 		id: crypto.randomUUID(),
 		role: "user",
-		content: Object.freeze(content),
+		content: Object.freeze([...content]),
 		source: Object.freeze({ kind: "user" })
 	});
 }
@@ -78,10 +78,7 @@ function newInjectedUserMessage(text) {
 			type: "text",
 			text
 		}]),
-		source: Object.freeze({
-			kind: "plugin",
-			plugin: "context-injection"
-		})
+		source: Object.freeze({ kind: "user" })
 	});
 }
 function isCompactionCheckpoint(event) {
@@ -111,21 +108,13 @@ function createCompactionUserMessage(summaryText, compactionId = crypto.randomUU
 	});
 }
 function newToolResultMessage(text, callId = crypto.randomUUID()) {
-	return Object.freeze({
-		id: crypto.randomUUID(),
-		role: "user",
-		content: Object.freeze([{
-			type: "tool-result",
-			toolCallId: callId,
-			content: [{
-				type: "text",
-				text
-			}]
-		}]),
-		source: Object.freeze({
-			kind: "tool",
-			callId
-		})
+	return createToolResultMessage({
+		callId,
+		content: [{
+			type: "text",
+			text
+		}],
+		isError: false
 	});
 }
 function replaceTextBlock(content, blockIndex, text) {
@@ -216,7 +205,8 @@ function closedTurns(events, includeOpen = true) {
 function formatToolResultText(event) {
 	const msg = event.data.message;
 	const parts = [];
-	for (const block of msg.content) if (block.type === "tool-result" && Array.isArray(block.content)) {
+	for (const block of msg.content) if (block.type === "text") parts.push(block.text);
+	else if (block.type === "tool-result" && Array.isArray(block.content)) {
 		for (const nested of block.content) if (nested.type === "text") parts.push(nested.text);
 	}
 	return parts.join("\n") || "";
@@ -592,9 +582,8 @@ function sourceToolResult(row, events) {
 		...event.data.error === void 0 ? {} : { toolResultError: event.data.error },
 		...event.data.meta === void 0 ? {} : { toolResultMeta: event.data.meta }
 	};
-	const result = original.content[0];
 	let replaced = false;
-	const content = result.content.flatMap((block) => {
+	const content = original.content.flatMap((block) => {
 		if (block.type !== "text") return [block];
 		if (replaced) return [];
 		replaced = true;
@@ -610,10 +599,7 @@ function sourceToolResult(row, events) {
 	return {
 		toolResult: {
 			...original,
-			content: [{
-				...result,
-				content
-			}]
+			content
 		},
 		...event.data.error === void 0 ? {} : { toolResultError: event.data.error },
 		...event.data.meta === void 0 ? {} : { toolResultMeta: event.data.meta }
@@ -624,7 +610,7 @@ function sourceToolResult(row, events) {
 function fallbackAssistantForToolResult(row, events, route) {
 	const resultEvent = sourceEvent(row, events);
 	const result = resultEvent?.type === "tool/result" ? resultEvent : void 0;
-	const callId = result?.data.message.source.callId ?? row.callId;
+	const callId = result?.data.message.toolCallId ?? result?.data.message.source.callId ?? row.callId;
 	if (callId === void 0) return void 0;
 	let exactBlock;
 	let nearbyBlock;
@@ -783,7 +769,7 @@ function groupForkRowsToTurns(rows, route, events) {
 			});
 			current.items.push({
 				kind: "system",
-				system: createSystemMessage(row.text, "dsh-message-edit")
+				system: createSystemMessage(row.text)
 			});
 		} else if (row.kind === "context.inject") {
 			flushAssistant(current);
@@ -1044,18 +1030,14 @@ function appendManualTurn(events, manual, emittedCallIds) {
 		if (stepOpen && !pendingCalls.has(callId) && pendingCalls.size > 0) {
 			const inferred = pendingCalls.values().next().value;
 			if (inferred !== void 0) {
-				const block = toolResult.content[0];
 				callId = inferred;
 				toolResult = {
 					...toolResult,
+					toolCallId: callId,
 					source: {
 						...toolResult.source,
 						callId
-					},
-					content: [{
-						...block,
-						toolCallId: callId
-					}]
+					}
 				};
 			}
 		}

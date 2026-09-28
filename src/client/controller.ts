@@ -645,10 +645,29 @@ export class MessageEditController {
     }
   }
 
+  private openSession(sessionId: SessionId): void {
+    try {
+      const get = (this.ctx as unknown as { get?: (name: string) => unknown }).get
+      const uiWorkspace = typeof get === 'function'
+        ? get.call(this.ctx, 'uiWorkspace') as { openSession?: (id: SessionId) => void } | undefined
+        : undefined
+      if (typeof uiWorkspace?.openSession === 'function') {
+        uiWorkspace.openSession(sessionId)
+        return
+      }
+    } catch {
+      // Fall through
+    }
+    const openFn = (this.sessions as unknown as { open?: (id: SessionId) => void }).open
+    if (typeof openFn === 'function') {
+      openFn.call(this.sessions, sessionId)
+    }
+  }
+
   /** Session-list publication is the reactive dependency for navigation. */
   private openWhenListed(sessionId: SessionId): Promise<boolean> {
     if (this.sessions.list.getSnapshot().byId[sessionId] !== undefined) {
-      this.sessions.open(sessionId)
+      this.openSession(sessionId)
       return Promise.resolve(true)
     }
 
@@ -669,7 +688,7 @@ export class MessageEditController {
         this.navigationWaits.delete(cancel)
         if (open) {
           try {
-            this.sessions.open(sessionId)
+            this.openSession(sessionId)
           } catch {
             resolve(false)
             return

@@ -24,6 +24,7 @@ import type {
 } from '@deepseek-ai/dsh-session-query'
 import {
   createSystemMessage,
+  createToolResultMessage,
   type AssistantMessage,
   type AssistantStreamRecord,
   type ContentBlock,
@@ -215,11 +216,11 @@ function userText(message: UserMessage): string {
     .join('\n')
 }
 
-function cloneUser(message: UserMessage, content: ContentBlock[] = structuredClone(message.content)): UserMessage {
+function cloneUser(message: UserMessage, content: readonly ContentBlock[] = structuredClone(message.content)): UserMessage {
   return Object.freeze({
-    id: crypto.randomUUID(),
+    id: crypto.randomUUID() as MessageId,
     role: 'user' as const,
-    content: Object.freeze(content),
+    content: Object.freeze([...content]),
     source: Object.freeze({ kind: 'user' as const }),
   }) as UserMessage
 }
@@ -239,7 +240,7 @@ function newInjectedUserMessage(text: string): UserMessage {
     id: crypto.randomUUID() as MessageId,
     role: 'user' as const,
     content: Object.freeze([{ type: 'text', text }] as ContentBlock[]),
-    source: Object.freeze({ kind: 'plugin' as const, plugin: 'context-injection' }),
+    source: Object.freeze({ kind: 'user' as const }),
   }) as UserMessage
 }
 
@@ -283,16 +284,11 @@ function createCompactionUserMessage(summaryText: string, compactionId = crypto.
 }
 
 function newToolResultMessage(text: string, callId = crypto.randomUUID() as ToolCallId): ToolResultMessage {
-  return Object.freeze({
-    id: crypto.randomUUID() as MessageId,
-    role: 'user' as const,
-    content: Object.freeze([{
-      type: 'tool-result' as const,
-      toolCallId: callId,
-      content: [{ type: 'text' as const, text }],
-    }]),
-    source: Object.freeze({ kind: 'tool' as const, callId }),
-  }) as ToolResultMessage
+  return createToolResultMessage({
+    callId,
+    content: [{ type: 'text', text }],
+    isError: false,
+  })
 }
 
 function replaceTextBlock(content: readonly ContentBlock[], blockIndex: number, text: string): ContentBlock[] {
@@ -406,8 +402,10 @@ function formatToolResultText(event: ToolResultEvent): string {
   const msg = event.data.message
   const parts: string[] = []
   for (const block of msg.content) {
-    if (block.type === 'tool-result' && Array.isArray(block.content)) {
-      for (const nested of block.content) {
+    if (block.type === 'text') {
+      parts.push(block.text)
+    } else if ((block as any).type === 'tool-result' && Array.isArray((block as any).content)) {
+      for (const nested of (block as any).content) {
         if (nested.type === 'text') parts.push(nested.text)
       }
     }
@@ -912,9 +910,8 @@ function sourceToolResult(
     }
   }
 
-  const result = original.content[0]
   let replaced = false
-  const content = result.content.flatMap((block): ContentBlock[] => {
+  const content = original.content.flatMap((block): ContentBlock[] => {
     if (block.type !== 'text') return [block]
     if (replaced) return []
     replaced = true
@@ -924,7 +921,7 @@ function sourceToolResult(
   return {
     toolResult: {
       ...original,
-      content: [{ ...result, content }],
+      content,
     } as ToolResultMessage,
     ...(event.data.error === undefined ? {} : { toolResultError: event.data.error }),
     ...(event.data.meta === undefined ? {} : { toolResultMeta: event.data.meta }),
@@ -940,7 +937,7 @@ function fallbackAssistantForToolResult(
 ): AssistantMessage | undefined {
   const resultEvent = sourceEvent(row, events)
   const result = resultEvent?.type === 'tool/result' ? resultEvent : undefined
-  const callId = (result?.data.message.source.callId ?? row.callId) as ToolCallId | undefined
+  const callId = (result?.data.message.toolCallId ?? result?.data.message.source.callId ?? row.callId) as ToolCallId | undefined
   if (callId === undefined) return undefined
 
   let exactBlock: Extract<ContentBlock, { type: 'tool-call' }> | undefined
@@ -1093,7 +1090,7 @@ function groupForkRowsToTurns(
       })
       current.items.push({
         kind: 'system',
-        system: createSystemMessage(row.text, 'dsh-message-edit'),
+        system: createSystemMessage(row.text),
       })
     } else if (row.kind === 'context.inject') {
       flushAssistant(current)
@@ -1448,12 +1445,11 @@ function appendManualTurn(
       if (stepOpen && !pendingCalls.has(callId) && pendingCalls.size > 0) {
         const inferred = pendingCalls.values().next().value
         if (inferred !== undefined) {
-          const block = toolResult.content[0]
           callId = inferred
           toolResult = {
             ...toolResult,
+            toolCallId: callId,
             source: { ...toolResult.source, callId },
-            content: [{ ...block, toolCallId: callId }],
           } as ToolResultMessage
         }
       }
