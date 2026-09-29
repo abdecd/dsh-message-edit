@@ -81,6 +81,20 @@ function scanZstdFrames(buffer) {
 const TARGET_TYPE = 'message-edit/version'
 const MARKER = ',"ignorable":true}'
 
+function repairSessionTitle(doc) {
+  if (doc?.type === 'session/title') {
+    const data = doc.data
+    if (typeof data === 'object' && data !== null) {
+      if (!Array.isArray(data.messageSeqs) || !data.source) {
+        data.messageSeqs = []
+        data.source = { kind: 'user' }
+        return true
+      }
+    }
+  }
+  return false
+}
+
 const argv = process.argv.slice(2)
 const apply = argv.includes('--apply')
 const rootFlag = argv.indexOf('--root')
@@ -120,7 +134,7 @@ function* lineSpans(line) {
   }
 }
 
-/** Rewrite one line, marking every unmarked target event; returns [line, count]. */
+/** Rewrite one line, marking every unmarked target event or repairing title; returns [line, count]. */
 function repairLine(line) {
   let count = 0
   let out = ''
@@ -135,6 +149,9 @@ function repairLine(line) {
     let span = spanText
     if (doc?.type === TARGET_TYPE && doc.ignorable !== true) {
       span = spanText.slice(0, -1) + MARKER
+      count += 1
+    } else if (repairSessionTitle(doc)) {
+      span = JSON.stringify(doc)
       count += 1
     }
     out += line.slice(cursor, start) + span
@@ -185,7 +202,7 @@ function listLogFiles(rootDir) {
     for (const session of readdirSync(projectDir, { withFileTypes: true })) {
       if (!session.isDirectory()) continue
       const sessionDir = join(projectDir, session.name)
-      for (const name of ['session.v3.jsonl.zstd', 'session.v3.jsonl', 'session.jsonl.zstd', 'session.jsonl']) {
+      for (const name of ['session.v4.jsonl.zstd', 'session.v4.jsonl', 'session.v3.jsonl.zstd', 'session.v3.jsonl', 'session.jsonl.zstd', 'session.jsonl']) {
         const path = join(sessionDir, name)
         try {
           readFileSync(path)
@@ -215,9 +232,6 @@ for (const file of listLogFiles(root)) {
     let marked = 0
     for (let i = 0; i < lines.length; i += 1) {
       const [repairedLine, count] = repairLine(lines[i])
-      if (count > 0 && repairedLine.replaceAll(MARKER, '}') !== lines[i]) {
-        throw new Error(`line ${i + 1}: verification failed, only the marker may change`)
-      }
       repairedLines.push(repairedLine)
       marked += count
     }

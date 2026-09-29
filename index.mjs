@@ -1187,7 +1187,11 @@ function resolveSourceTitle(ctx, source, proposedTitle) {
 }
 async function createVersionAgent(ctx, source, childId, plan, options, route, title, cwd, presetOverride) {
 	const seed = versionSeed(source, plan);
-	if (title !== void 0 && (plan.boundary === -1 || plan.version.effect.operation === "fork")) appendLogSeedEvent(seed, "session/title", { title });
+	if (title !== void 0 && (plan.boundary === -1 || plan.version.effect.operation === "fork")) appendLogSeedEvent(seed, "session/title", {
+		title,
+		messageSeqs: [],
+		source: { kind: "user" }
+	});
 	const presets = agentPresetService(ctx);
 	const presetId = presetOverride ?? sessionPreset(source);
 	const selection = modelSelectionOf(route);

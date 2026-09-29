@@ -1643,7 +1643,11 @@ async function createVersionAgent(
 ): Promise<AgentHandle> {
   const seed = versionSeed(source, plan)
   if (title !== undefined && (plan.boundary === -1 || plan.version.effect.operation === 'fork')) {
-    appendLogSeedEvent(seed, 'session/title', { title } as any)
+    appendLogSeedEvent(seed, 'session/title', {
+      title,
+      messageSeqs: [],
+      source: { kind: 'user' },
+    })
   }
   const presets = agentPresetService(ctx)
   const presetId = presetOverride ?? sessionPreset(source)
