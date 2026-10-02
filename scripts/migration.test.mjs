@@ -53,6 +53,7 @@ async function clientFixture(next, options = {}) {
     },
   }
   const opened = []
+  const legacyOpened = []
   const entries = []
   const effects = []
   plugin.apply({
@@ -60,11 +61,17 @@ async function clientFixture(next, options = {}) {
       list,
       binding: () => binding,
       refresh: async () => {},
-      open: id => opened.push(id),
+      ...(options.disableLegacyOpen ? {} : { open: id => legacyOpened.push(id) }),
     },
     slots: { register: entry => entries.push(entry) },
     on() {},
     get(name) {
+      if (name === 'uiWorkspace') {
+        if (options.disableWorkspaceNavigation) return undefined
+        return {
+          openSession: id => opened.push(id),
+        }
+      }
       if (name !== 'modelDirectories' || options.composerSelection === undefined) return undefined
       return {
         directoryFor: () => ({
@@ -77,7 +84,7 @@ async function clientFixture(next, options = {}) {
   const face = entries[0].inject('source')
   assert.equal(entries[1].inject('source'), face)
   const release = face.acquire()
-  return { face, requests, eventSource, sessionSource, list, binding, opened, externals, release, effects }
+  return { face, requests, eventSource, sessionSource, list, binding, opened, legacyOpened, externals, release, effects }
 }
 const settle = () => new Promise(resolve => setTimeout(resolve, 220))
 
@@ -242,4 +249,59 @@ test('fork forwards the selected agent preset', async () => {
     assert.ok(request)
     assert.equal(JSON.parse(request.body).agentPreset, 'standard')
   } finally { f.release() }
+})
+
+test('primary navigation prioritizes uiWorkspace.openSession and leaves legacy open unused', async () => {
+  const f = await clientFixture({ provider: 'provider', model: 'model' })
+  try {
+    f.face.load()
+    await settle()
+    assert.equal(await f.face.reroll(), true)
+    assert.deepEqual(f.opened, ['child'])
+    assert.deepEqual(f.legacyOpened, [])
+  } finally { f.release() }
+})
+
+test('fallback navigation invokes legacy sessions.open when uiWorkspace is absent', async () => {
+  const f = await clientFixture({ provider: 'provider', model: 'model' }, {
+    disableWorkspaceNavigation: true,
+  })
+  try {
+    f.face.load()
+    await settle()
+    assert.equal(await f.face.reroll(), true)
+    assert.deepEqual(f.opened, [])
+    assert.deepEqual(f.legacyOpened, ['child'])
+  } finally { f.release() }
+})
+
+test('missing navigation returns false and reports visible error when neither uiWorkspace nor sessions.open is available', async () => {
+  const f = await clientFixture({ provider: 'provider', model: 'model' }, {
+    disableWorkspaceNavigation: true,
+    disableLegacyOpen: true,
+  })
+  try {
+    f.face.load()
+    await settle()
+    assert.equal(await f.face.reroll(), false)
+    assert.deepEqual(f.opened, [])
+    assert.deepEqual(f.legacyOpened, [])
+    assert.match(f.face.hooks.messageEdit.getSnapshot().error, /无法打开/)
+  } finally { f.release() }
+})
+
+test('target peer and cohort regression: package.json and lockfile contain no old 0.1.x cohort', async () => {
+  const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+  for (const [name, version] of Object.entries(pkg.devDependencies ?? {})) {
+    if (name.startsWith('@deepseek-ai/dsh-')) {
+      assert.equal(version, '0.2.0-rc.2', `devDependency ${name} should be 0.2.0-rc.2`)
+    }
+  }
+  for (const [name, version] of Object.entries(pkg.peerDependencies ?? {})) {
+    if (name.startsWith('@deepseek-ai/dsh-')) {
+      assert.equal(version, '^0.2.0-rc.2', `peerDependency ${name} should be ^0.2.0-rc.2`)
+    }
+  }
+  const lock = await readFile(new URL('../pnpm-lock.yaml', import.meta.url), 'utf8')
+  assert.equal(/@deepseek-ai\/dsh-[^:\s]+@[~^]?0\.1\./.test(lock), false, 'Lockfile must not contain 0.1.x DSH packages')
 })

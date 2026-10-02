@@ -645,7 +645,7 @@ export class MessageEditController {
     }
   }
 
-  private openSession(sessionId: SessionId): void {
+  private openSession(sessionId: SessionId): boolean {
     try {
       const get = (this.ctx as unknown as { get?: (name: string) => unknown }).get
       const uiWorkspace = typeof get === 'function'
@@ -653,7 +653,7 @@ export class MessageEditController {
         : undefined
       if (typeof uiWorkspace?.openSession === 'function') {
         uiWorkspace.openSession(sessionId)
-        return
+        return true
       }
     } catch {
       // Fall through
@@ -661,14 +661,15 @@ export class MessageEditController {
     const openFn = (this.sessions as unknown as { open?: (id: SessionId) => void }).open
     if (typeof openFn === 'function') {
       openFn.call(this.sessions, sessionId)
+      return true
     }
+    return false
   }
 
   /** Session-list publication is the reactive dependency for navigation. */
   private openWhenListed(sessionId: SessionId): Promise<boolean> {
     if (this.sessions.list.getSnapshot().byId[sessionId] !== undefined) {
-      this.openSession(sessionId)
-      return Promise.resolve(true)
+      return Promise.resolve(this.openSession(sessionId))
     }
 
     // Host-created versions arrive independently of the HTTP response. Wait for
@@ -680,21 +681,21 @@ export class MessageEditController {
       let settled = false
       let dispose = (): void => {}
       let timer: ReturnType<typeof setTimeout> | undefined
-      const finish = (open: boolean): void => {
+      const finish = (listed: boolean): void => {
         if (settled) return
         settled = true
         if (timer !== undefined) clearTimeout(timer)
         dispose()
         this.navigationWaits.delete(cancel)
-        if (open) {
+        if (listed) {
           try {
-            this.openSession(sessionId)
+            resolve(this.openSession(sessionId))
           } catch {
             resolve(false)
-            return
           }
+          return
         }
-        resolve(open)
+        resolve(false)
       }
       const cancel = (): void => { finish(false) }
       this.navigationWaits.add(cancel)

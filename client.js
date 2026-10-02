@@ -541,36 +541,39 @@ window.__ModuleLoader__.load({
 					const uiWorkspace = typeof get === "function" ? get.call(this.ctx, "uiWorkspace") : void 0;
 					if (typeof uiWorkspace?.openSession === "function") {
 						uiWorkspace.openSession(sessionId);
-						return;
+						return true;
 					}
 				} catch {}
 				const openFn = this.sessions.open;
-				if (typeof openFn === "function") openFn.call(this.sessions, sessionId);
+				if (typeof openFn === "function") {
+					openFn.call(this.sessions, sessionId);
+					return true;
+				}
+				return false;
 			}
 			/** Session-list publication is the reactive dependency for navigation. */
 			openWhenListed(sessionId) {
-				if (this.sessions.list.getSnapshot().byId[sessionId] !== void 0) {
-					this.openSession(sessionId);
-					return Promise.resolve(true);
-				}
+				if (this.sessions.list.getSnapshot().byId[sessionId] !== void 0) return Promise.resolve(this.openSession(sessionId));
 				this.sessions.refresh().catch(() => {});
 				return new Promise((resolve) => {
 					let settled = false;
 					let dispose = () => {};
 					let timer;
-					const finish = (open) => {
+					const finish = (listed) => {
 						if (settled) return;
 						settled = true;
 						if (timer !== void 0) clearTimeout(timer);
 						dispose();
 						this.navigationWaits.delete(cancel);
-						if (open) try {
-							this.openSession(sessionId);
-						} catch {
-							resolve(false);
+						if (listed) {
+							try {
+								resolve(this.openSession(sessionId));
+							} catch {
+								resolve(false);
+							}
 							return;
 						}
-						resolve(open);
+						resolve(false);
 					};
 					const cancel = () => {
 						finish(false);
@@ -606,15 +609,15 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var InlineMessageEdit_module_css_default = {
-			"footer": "dOHe_a_footer",
-			"input": "dOHe_a_input",
-			"title": "dOHe_a_title",
-			"iconButton": "dOHe_a_iconButton",
 			"panel": "dOHe_a_panel",
+			"pickerItem": "dOHe_a_pickerItem",
+			"title": "dOHe_a_title",
+			"input": "dOHe_a_input",
 			"overlay": "dOHe_a_overlay",
 			"picker": "dOHe_a_picker",
-			"pickerItem": "dOHe_a_pickerItem",
-			"pickerItemActive": "dOHe_a_pickerItemActive"
+			"pickerItemActive": "dOHe_a_pickerItemActive",
+			"footer": "dOHe_a_footer",
+			"iconButton": "dOHe_a_iconButton"
 		};
 		//#endregion
 		//#region src/client/InlineMessageEdit.tsx
@@ -1001,78 +1004,78 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var MessageEditTimelineView_module_css_default = {
-			"versionMain": "_0DCDkW_versionMain",
 			"effectControls": "_0DCDkW_effectControls",
-			"pathBadge": "_0DCDkW_pathBadge",
-			"touchDragGhost": "_0DCDkW_touchDragGhost",
-			"empty": "_0DCDkW_empty",
-			"textButton": "_0DCDkW_textButton",
-			"touchDragGhostPreview": "_0DCDkW_touchDragGhostPreview",
-			"error": "_0DCDkW_error",
-			"messageTime": "_0DCDkW_messageTime",
-			"batchActions": "_0DCDkW_batchActions",
-			"editorHint": "_0DCDkW_editorHint",
-			"composerFooter": "_0DCDkW_composerFooter",
-			"notice": "_0DCDkW_notice",
-			"dragHandle": "_0DCDkW_dragHandle",
-			"versionList": "_0DCDkW_versionList",
-			"versionDot": "_0DCDkW_versionDot",
-			"editedBadge": "_0DCDkW_editedBadge",
-			"versionDiff": "_0DCDkW_versionDiff",
-			"versionsPanel": "_0DCDkW_versionsPanel",
-			"pageHeader": "_0DCDkW_pageHeader",
-			"messageSpacer": "_0DCDkW_messageSpacer",
-			"collapseTurnButton": "_0DCDkW_collapseTurnButton",
-			"messageHeader": "_0DCDkW_messageHeader",
-			"select": "_0DCDkW_select",
-			"messageTextWrapper": "_0DCDkW_messageTextWrapper",
-			"cascadeField": "_0DCDkW_cascadeField",
-			"turnList": "_0DCDkW_turnList",
-			"emptyState": "_0DCDkW_emptyState",
-			"status": "_0DCDkW_status",
-			"intro": "_0DCDkW_intro",
-			"touchDragGhostKind": "_0DCDkW_touchDragGhostKind",
-			"editor": "_0DCDkW_editor",
-			"changeSummary": "_0DCDkW_changeSummary",
-			"messageTextCollapsed": "_0DCDkW_messageTextCollapsed",
-			"turnsPanel": "_0DCDkW_turnsPanel",
-			"title": "_0DCDkW_title",
-			"textarea": "_0DCDkW_textarea",
-			"checkbox": "_0DCDkW_checkbox",
-			"turnHeaderLeft": "_0DCDkW_turnHeaderLeft",
-			"messageCard": "_0DCDkW_messageCard",
-			"turnActions": "_0DCDkW_turnActions",
-			"expandButton": "_0DCDkW_expandButton",
-			"newBadge": "_0DCDkW_newBadge",
-			"currentBadge": "_0DCDkW_currentBadge",
-			"turnHeader": "_0DCDkW_turnHeader",
-			"columns": "_0DCDkW_columns",
-			"turnPreview": "_0DCDkW_turnPreview",
-			"versionTitle": "_0DCDkW_versionTitle",
-			"changeChip": "_0DCDkW_changeChip",
-			"workspaceField": "_0DCDkW_workspaceField",
-			"sectionHeading": "_0DCDkW_sectionHeading",
-			"versionItem": "_0DCDkW_versionItem",
-			"versionLine": "_0DCDkW_versionLine",
-			"root": "_0DCDkW_root",
-			"versionButton": "_0DCDkW_versionButton",
-			"kindBadge": "_0DCDkW_kindBadge",
-			"turnTitle": "_0DCDkW_turnTitle",
-			"secondaryButton": "_0DCDkW_secondaryButton",
-			"effectButtons": "_0DCDkW_effectButtons",
-			"workspaceSelect": "_0DCDkW_workspaceSelect",
-			"subtitle": "_0DCDkW_subtitle",
-			"turnSection": "_0DCDkW_turnSection",
-			"count": "_0DCDkW_count",
-			"actionRow": "_0DCDkW_actionRow",
-			"compactionStats": "_0DCDkW_compactionStats",
 			"messageList": "_0DCDkW_messageList",
 			"versionMeta": "_0DCDkW_versionMeta",
+			"changeSummary": "_0DCDkW_changeSummary",
+			"columns": "_0DCDkW_columns",
+			"turnActions": "_0DCDkW_turnActions",
+			"versionItem": "_0DCDkW_versionItem",
+			"turnHeader": "_0DCDkW_turnHeader",
+			"messageText": "_0DCDkW_messageText",
+			"touchDragGhostKind": "_0DCDkW_touchDragGhostKind",
+			"versionTitle": "_0DCDkW_versionTitle",
+			"versionList": "_0DCDkW_versionList",
+			"messageHeader": "_0DCDkW_messageHeader",
+			"messageTime": "_0DCDkW_messageTime",
+			"turnPreview": "_0DCDkW_turnPreview",
+			"emptyState": "_0DCDkW_emptyState",
+			"messageSpacer": "_0DCDkW_messageSpacer",
+			"messageTextCollapsed": "_0DCDkW_messageTextCollapsed",
+			"pageHeader": "_0DCDkW_pageHeader",
+			"messageCard": "_0DCDkW_messageCard",
+			"count": "_0DCDkW_count",
+			"collapseTurnButton": "_0DCDkW_collapseTurnButton",
+			"batchActions": "_0DCDkW_batchActions",
 			"primaryButton": "_0DCDkW_primaryButton",
+			"compactionStats": "_0DCDkW_compactionStats",
+			"turnTitle": "_0DCDkW_turnTitle",
+			"turnList": "_0DCDkW_turnList",
+			"actionRow": "_0DCDkW_actionRow",
+			"editorHint": "_0DCDkW_editorHint",
+			"subtitle": "_0DCDkW_subtitle",
+			"sectionHeading": "_0DCDkW_sectionHeading",
+			"cascadeField": "_0DCDkW_cascadeField",
+			"messageTextWrapper": "_0DCDkW_messageTextWrapper",
+			"checkbox": "_0DCDkW_checkbox",
 			"editorActions": "_0DCDkW_editorActions",
+			"error": "_0DCDkW_error",
+			"turnsPanel": "_0DCDkW_turnsPanel",
+			"composerFooter": "_0DCDkW_composerFooter",
 			"headerActions": "_0DCDkW_headerActions",
-			"effectDepth": "_0DCDkW_effectDepth",
-			"messageText": "_0DCDkW_messageText"
+			"workspaceSelect": "_0DCDkW_workspaceSelect",
+			"root": "_0DCDkW_root",
+			"notice": "_0DCDkW_notice",
+			"versionDiff": "_0DCDkW_versionDiff",
+			"dragHandle": "_0DCDkW_dragHandle",
+			"pathBadge": "_0DCDkW_pathBadge",
+			"select": "_0DCDkW_select",
+			"editor": "_0DCDkW_editor",
+			"versionDot": "_0DCDkW_versionDot",
+			"versionButton": "_0DCDkW_versionButton",
+			"kindBadge": "_0DCDkW_kindBadge",
+			"changeChip": "_0DCDkW_changeChip",
+			"workspaceField": "_0DCDkW_workspaceField",
+			"intro": "_0DCDkW_intro",
+			"newBadge": "_0DCDkW_newBadge",
+			"effectButtons": "_0DCDkW_effectButtons",
+			"versionLine": "_0DCDkW_versionLine",
+			"editedBadge": "_0DCDkW_editedBadge",
+			"versionsPanel": "_0DCDkW_versionsPanel",
+			"textButton": "_0DCDkW_textButton",
+			"turnSection": "_0DCDkW_turnSection",
+			"touchDragGhost": "_0DCDkW_touchDragGhost",
+			"expandButton": "_0DCDkW_expandButton",
+			"turnHeaderLeft": "_0DCDkW_turnHeaderLeft",
+			"title": "_0DCDkW_title",
+			"textarea": "_0DCDkW_textarea",
+			"secondaryButton": "_0DCDkW_secondaryButton",
+			"touchDragGhostPreview": "_0DCDkW_touchDragGhostPreview",
+			"versionMain": "_0DCDkW_versionMain",
+			"status": "_0DCDkW_status",
+			"currentBadge": "_0DCDkW_currentBadge",
+			"empty": "_0DCDkW_empty",
+			"effectDepth": "_0DCDkW_effectDepth"
 		};
 		//#endregion
 		//#region src/client/MessageEditTimelineView.tsx

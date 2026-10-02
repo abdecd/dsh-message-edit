@@ -104,7 +104,7 @@ pnpm run build
 pnpm test
 ```
 
-构建基于 npm 发布的 `@deepseek-ai/dsh-*@0.1.2-rc.1`（Cordis peer: `^4.0.1`） 类型与本地工具链（typescript、tsdown、lightningcss），不再依赖 dsh 源码树。构建生成：
+构建基于 npm 发布的 `@deepseek-ai/dsh-*@0.2.0-rc.2`（Cordis peer: `^4.0.4`，DSH peer: `^0.2.0-rc.2`）类型与本地工具链（typescript、tsdown、lightningcss），不再依赖 dsh 源码树。静态类型检查与契约测试已对齐 0.2.0-rc.2（真实宿主多浏览器端到端运行时挂载视具体部署环境验证）。构建生成：
 
 - `index.mjs`：Host 插件
 - `client.js`：Browser 插件
