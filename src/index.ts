@@ -1,3 +1,12 @@
+function isHeadSystemRow(row: ForkMessageRow, events: readonly SessionEvent[]): boolean {
+  if (row.kind !== 'system') return false
+  if (row.sourceEventSeq === undefined) return true
+  const event = sourceEvent(row, events)
+  if (event?.type !== 'system/message') return false
+  const firstSysEvent = events.find(e => e.type === 'system/message')
+  return firstSysEvent !== undefined && event.seq === firstSysEvent.seq
+}
+
 /** Host half of Message Edit: turn-atomic forks and structurally reversible versions. */
 import type { Context } from '@deepseek-ai/cordis'
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -858,19 +867,6 @@ function routedHeader(
   }
 }
 
-function sourceHeader(
-  row: ForkMessageRow,
-  events: readonly SessionEvent[],
-  route?: ModelRoute,
-): EpochHeader | undefined {
-  const event = sourceEvent(row, events)
-  if (event?.type !== 'request/header') return undefined
-  const base = event.data.header
-  if (route === undefined) return base
-  const routed = routedHeader(base, route)
-  return routed === base ? base : routed
-}
-
 function sourceLatestHeader(
   events: readonly SessionEvent[],
   route: ModelRoute,
@@ -1078,8 +1074,17 @@ function groupForkRowsToTurns(
       if (pendingAssistantRows.length > 0 && pendingSource !== row.sourceEventSeq) flushAssistant(current)
       pendingAssistantRows.push(row)
     } else if (row.kind === 'system') {
+      const isHead = isHeadSystemRow(row, events)
+      const origEvent = row.sourceEventSeq !== undefined ? sourceEvent(row, events) : undefined
+      const origText = origEvent?.type === 'system/message'
+        ? (origEvent.data.message.content.find(b => b.type === 'text')?.text ?? '')
+        : ''
+      const isEdited = row.text !== origText
+      if (isHead && !isEdited) {
+        continue
+      }
       flushAssistant(current)
-      const header = sourceHeader(row, events, route) ?? {
+      const header: EpochHeader = {
         config: routedConfig({ provider: route.provider, model: route.model }, route),
       }
       const context = sourceLatestContext(events, route)
@@ -1151,7 +1156,9 @@ function groupForkRowsToTurns(
   const filteredTurns = turns.filter(turn => turn.items.length > 0)
   const hasHeader = filteredTurns.some(turn => turn.items.some(item => item.kind === 'header'))
   if (!hasHeader && filteredTurns.length > 0) {
-    const header = sourceLatestHeader(events, route)
+    const header: EpochHeader = {
+      config: routedConfig({ provider: route.provider, model: route.model }, route),
+    }
     const context = sourceLatestContext(events, route)
     const firstTurn = filteredTurns[0]!
     const headerItem: ManualTurnItem = {

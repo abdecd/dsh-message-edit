@@ -1170,3 +1170,133 @@ test('fork with compaction and intermediate system messages satisfies foldSurfac
 })
 
 
+
+test('fork omits unedited head system prompt and old tools to allow target preset dynamic injection', async () => {
+  const sourceHeader = { id: 'source-preset-fork', version: 3, createdAt: 1, cwd: '/tmp', agentPreset: 'old-preset' }
+  const sourceEvents = [
+    {
+      type: 'system/message', seq: 0, time: 9,
+      data: { turn: 0, step: 0, message: { id: 'sys0', role: 'system', content: [{ type: 'text', text: 'Old Preset Prompt' }] } },
+      surfaceOp: 'append',
+    },
+    { type: 'turn/start', seq: 1, time: 10, data: { turn: 1 } },
+    {
+      type: 'user/message', seq: 2, time: 11,
+      data: { id: 'u1', role: 'user', content: [{ type: 'text', text: 'Hello' }], source: { kind: 'user' } },
+      surfaceOp: 'append',
+    },
+    {
+      type: 'request/header', seq: 3, time: 12,
+      data: { header: { config: { provider: 'test-p', model: 'test-m' }, tools: [{ name: 'old_tool', description: 'old tool', parameters: {} }] } },
+    },
+    {
+      type: 'assistant/message', seq: 4, time: 13,
+      data: { turn: 1, step: 1, message: { id: 'a1', role: 'assistant', content: [{ type: 'text', text: 'Hi!' }], source: { kind: 'model', provider: 'test-p', model: 'test-m' } } },
+      surfaceOp: 'append',
+    },
+    { type: 'turn/end', seq: 5, time: 14, data: { turn: 1, reason: { kind: 'completed' } } },
+  ]
+
+  let routeHandler
+  let created
+  const mountedPresets = []
+  const sourceSession = {
+    id: 'source-preset-fork',
+    header: sourceHeader,
+    snapshotEvents: () => sourceEvents,
+  }
+  const sourceAgent = {
+    session: sourceSession,
+    options: { provider: 'test-p', model: 'test-m' },
+    runMaintenance: async fn => fn(sourceAgent),
+  }
+  const childSession = {
+    id: 'child-preset-fork',
+    header: { id: 'child-preset-fork', version: 3, createdAt: 30 },
+    events: [],
+    snapshotEvents() { return this.events },
+  }
+
+  const mockPresets = {
+    resolve: async (id) => ({ id }),
+    mount: async (agentCtx, id) => { mountedPresets.push(id) },
+  }
+
+  const ctx = {
+    effect: fn => fn(),
+    webServer: { register: entry => { routeHandler = entry.handler } },
+    connection: { requestRejection: () => undefined },
+    agents: {
+      get: () => sourceAgent,
+      create: async options => {
+        created = options
+        if (options.setup) await options.setup({})
+        return {
+          agent: {
+            session: childSession,
+            followup: () => {},
+          },
+          dispose: async () => {},
+        }
+      },
+    },
+    sessions: { flush: async () => {} },
+    workspaceRegistry: { list: () => [] },
+    get: (service) => service === 'agentPresets' ? mockPresets : undefined,
+  }
+
+  messageEdit.apply(ctx)
+
+  const forkPayload = {
+    action: 'fork',
+    sessionId: 'source-preset-fork',
+    agentPreset: 'new-custom-preset',
+    rows: [
+      { kind: 'system', text: 'Old Preset Prompt', sourceEventSeq: 0 },
+      { kind: 'user', text: 'Hello', sourceEventSeq: 2 },
+      { kind: 'assistant.response', text: 'Hi!', sourceEventSeq: 4 },
+      { kind: 'user', text: 'Next question' },
+    ],
+  }
+
+  const req = {
+    method: 'POST',
+    url: '/message-edit',
+    headers: { host: '127.0.0.1' },
+    on(event, listener) {
+      if (event === 'data') listener(Buffer.from(JSON.stringify(forkPayload)))
+      if (event === 'end') queueMicrotask(listener)
+    },
+  }
+
+  let status
+  let body
+  await routeHandler(req, {
+    writeHead: value => { status = value },
+    end: value => { body = JSON.parse(value) },
+  })
+
+  assert.equal(status, 200, JSON.stringify(body))
+  assert.ok(created, 'Child agent should be created')
+  assert.equal(created.meta.agentPreset, 'new-custom-preset', 'Child meta must have new agent preset')
+  assert.deepEqual(mountedPresets, ['new-custom-preset'], 'Child agent setup must mount the new agent preset')
+
+  // Verify seed does NOT contain old head system prompt
+  const seedSystemEvents = created.seed.filter(e => e.type === 'system/message')
+  assert.equal(seedSystemEvents.length, 0, 'Seed must omit unedited head system prompt')
+
+  // Verify seed header does NOT contain old tools
+  const seedHeaderEvents = created.seed.filter(e => e.type === 'request/header')
+  for (const h of seedHeaderEvents) {
+    assert.equal(h.data.header.tools, undefined, 'Seed header must not hardcode old tools')
+  }
+
+  // Verify user and assistant messages are preserved
+  const seedUserEvents = created.seed.filter(e => e.type === 'user/message')
+  assert.equal(seedUserEvents.length, 1)
+  assert.equal(seedUserEvents[0].data.content[0].text, 'Hello')
+
+  const seedAssistantEvents = created.seed.filter(e => e.type === 'assistant/message')
+  assert.equal(seedAssistantEvents.length, 1)
+  assert.equal(seedAssistantEvents[0].data.message.content[0].text, 'Hi!')
+})

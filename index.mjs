@@ -18,6 +18,14 @@ function retryTurnForEvent(messages, eventSeq) {
 }
 //#endregion
 //#region src/index.ts
+function isHeadSystemRow(row, events) {
+	if (row.kind !== "system") return false;
+	if (row.sourceEventSeq === void 0) return true;
+	const event = sourceEvent(row, events);
+	if (event?.type !== "system/message") return false;
+	const firstSysEvent = events.find((e) => e.type === "system/message");
+	return firstSysEvent !== void 0 && event.seq === firstSysEvent.seq;
+}
 /** Stable Cordis plugin name. */
 const name = "message-edit";
 /** Public services used by the branch transaction and timeline projection. */
@@ -549,14 +557,6 @@ function routedHeader(base, route) {
 		config
 	};
 }
-function sourceHeader(row, events, route) {
-	const event = sourceEvent(row, events);
-	if (event?.type !== "request/header") return void 0;
-	const base = event.data.header;
-	if (route === void 0) return base;
-	const routed = routedHeader(base, route);
-	return routed === base ? base : routed;
-}
 function sourceLatestHeader(events, route) {
 	const lastEvent = events.findLast((event) => event.type === "request/header");
 	if (lastEvent !== void 0) return routedHeader(lastEvent.data.header, route);
@@ -756,8 +756,13 @@ function groupForkRowsToTurns(rows, route, events) {
 			if (pendingAssistantRows.length > 0 && pendingSource !== row.sourceEventSeq) flushAssistant(current);
 			pendingAssistantRows.push(row);
 		} else if (row.kind === "system") {
+			const isHead = isHeadSystemRow(row, events);
+			const origEvent = row.sourceEventSeq !== void 0 ? sourceEvent(row, events) : void 0;
+			const origText = origEvent?.type === "system/message" ? origEvent.data.message.content.find((b) => b.type === "text")?.text ?? "" : "";
+			const isEdited = row.text !== origText;
+			if (isHead && !isEdited) continue;
 			flushAssistant(current);
-			const header = sourceHeader(row, events, route) ?? { config: routedConfig({
+			const header = { config: routedConfig({
 				provider: route.provider,
 				model: route.model
 			}, route) };
@@ -822,7 +827,10 @@ function groupForkRowsToTurns(rows, route, events) {
 	if (current !== void 0) flushAssistant(current);
 	const filteredTurns = turns.filter((turn) => turn.items.length > 0);
 	if (!filteredTurns.some((turn) => turn.items.some((item) => item.kind === "header")) && filteredTurns.length > 0) {
-		const header = sourceLatestHeader(events, route);
+		const header = { config: routedConfig({
+			provider: route.provider,
+			model: route.model
+		}, route) };
 		const context = sourceLatestContext(events, route);
 		const firstTurn = filteredTurns[0];
 		const headerItem = {
