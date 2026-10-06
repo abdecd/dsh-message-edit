@@ -18,14 +18,6 @@ function retryTurnForEvent(messages, eventSeq) {
 }
 //#endregion
 //#region src/index.ts
-function isHeadSystemRow(row, events) {
-	if (row.kind !== "system") return false;
-	if (row.sourceEventSeq === void 0) return true;
-	const event = sourceEvent(row, events);
-	if (event?.type !== "system/message") return false;
-	const firstSysEvent = events.find((e) => e.type === "system/message");
-	return firstSysEvent !== void 0 && event.seq === firstSysEvent.seq;
-}
 /** Stable Cordis plugin name. */
 const name = "message-edit";
 /** Public services used by the branch transaction and timeline projection. */
@@ -756,11 +748,9 @@ function groupForkRowsToTurns(rows, route, events) {
 			if (pendingAssistantRows.length > 0 && pendingSource !== row.sourceEventSeq) flushAssistant(current);
 			pendingAssistantRows.push(row);
 		} else if (row.kind === "system") {
-			const isHead = isHeadSystemRow(row, events);
 			const origEvent = row.sourceEventSeq !== void 0 ? sourceEvent(row, events) : void 0;
 			const origText = origEvent?.type === "system/message" ? origEvent.data.message.content.find((b) => b.type === "text")?.text ?? "" : "";
-			const isEdited = row.text !== origText;
-			if (isHead && !isEdited) continue;
+			if (!(row.text !== origText)) continue;
 			flushAssistant(current);
 			const header = { config: routedConfig({
 				provider: route.provider,
@@ -825,7 +815,10 @@ function groupForkRowsToTurns(rows, route, events) {
 		}
 	}
 	if (current !== void 0) flushAssistant(current);
-	const filteredTurns = turns.filter((turn) => turn.items.length > 0);
+	const filteredTurns = turns.filter((turn) => turn.items.length > 0).map((turn, index) => ({
+		...turn,
+		turn: index + 1
+	}));
 	if (!filteredTurns.some((turn) => turn.items.some((item) => item.kind === "header")) && filteredTurns.length > 0) {
 		const header = { config: routedConfig({
 			provider: route.provider,
@@ -841,6 +834,14 @@ function groupForkRowsToTurns(rows, route, events) {
 		const userIndex = firstTurn.items.findIndex((item) => item.kind === "user");
 		if (userIndex !== -1) firstTurn.items.splice(userIndex + 1, 0, headerItem);
 		else firstTurn.items.unshift(headerItem);
+	}
+	const firstTurn = filteredTurns[0];
+	if (firstTurn !== void 0 && !firstTurn.items.some((item) => item.kind === "system" && item.system !== void 0)) {
+		const userIndex = firstTurn.items.findIndex((item) => item.kind === "user");
+		firstTurn.items.splice(userIndex === -1 ? 0 : userIndex, 0, {
+			kind: "system",
+			system: createSystemMessage("")
+		});
 	}
 	return filteredTurns;
 }
@@ -961,6 +962,10 @@ function appendSurfaceSeedEvent(events, type, data, intent) {
 		...intent.sourceEventSeqs === void 0 ? {} : { sourceEventSeqs: intent.sourceEventSeqs }
 	});
 }
+/** The surface node holding the system prompt, when the seed already has one. */
+function systemHeadSeq(events) {
+	for (const seq of foldSurface(events).nodes) if ((events[seq] ?? events.find((candidate) => candidate.seq === seq))?.type === "system/message") return seq;
+}
 function appendManualTurn(events, manual, emittedCallIds) {
 	const { turn, items } = manual;
 	appendLogSeedEvent(events, "turn/start", { turn });
@@ -1022,11 +1027,19 @@ function appendManualTurn(events, manual, emittedCallIds) {
 			step
 		});
 		stepOpen = true;
+		const headSeq = systemHeadSeq(events);
 		appendSurfaceSeedEvent(events, "system/message", {
 			turn,
 			step,
 			message: item.system
-		}, { surfaceOp: "append" });
+		}, headSeq === void 0 ? { surfaceOp: "append" } : {
+			surfaceOp: {
+				op: "replace",
+				startSeq: headSeq,
+				endSeq: headSeq
+			},
+			sourceEventSeqs: [headSeq]
+		});
 		closeStep();
 	} else if (item.kind === "user" && item.user !== void 0) {
 		closeStep();

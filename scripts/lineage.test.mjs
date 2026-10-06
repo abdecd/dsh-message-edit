@@ -1281,9 +1281,21 @@ test('fork omits unedited head system prompt and old tools to allow target prese
   assert.equal(created.meta.agentPreset, 'new-custom-preset', 'Child meta must have new agent preset')
   assert.deepEqual(mountedPresets, ['new-custom-preset'], 'Child agent setup must mount the new agent preset')
 
-  // Verify seed does NOT contain old head system prompt
+  // Verify seed does NOT bake the source head system prompt text: the target
+  // preset injects its own prompt into the seed's empty head node at runtime,
+  // so the node exists but stays empty until the first step fills it in place.
   const seedSystemEvents = created.seed.filter(e => e.type === 'system/message')
-  assert.equal(seedSystemEvents.length, 0, 'Seed must omit unedited head system prompt')
+  assert.equal(seedSystemEvents.length, 1, 'Seed must carry exactly one system head node')
+  assert.equal(seedSystemEvents[0].data.message.content.length, 0, 'Seed head system node must stay empty')
+
+  // The system prompt must head the surface and the log must open turn 1, or
+  // the harness's cold reader refuses the whole artifact (see
+  // "turn/start does not open the expected turn" and
+  // "system/message requires a protected first surface head").
+  const foldedSeed = foldSurface(created.seed)
+  assert.equal(foldedSeed.nodes[0], seedSystemEvents[0].seq, 'Seed system head must be surface node 0')
+  const firstTurnStart = created.seed.find(e => e.type === 'turn/start')
+  assert.equal(firstTurnStart.data.turn, 1, 'Seed must open turn 1')
 
   // Verify seed header does NOT contain old tools
   const seedHeaderEvents = created.seed.filter(e => e.type === 'request/header')

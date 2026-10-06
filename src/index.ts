@@ -1,12 +1,3 @@
-function isHeadSystemRow(row: ForkMessageRow, events: readonly SessionEvent[]): boolean {
-  if (row.kind !== 'system') return false
-  if (row.sourceEventSeq === undefined) return true
-  const event = sourceEvent(row, events)
-  if (event?.type !== 'system/message') return false
-  const firstSysEvent = events.find(e => e.type === 'system/message')
-  return firstSysEvent !== undefined && event.seq === firstSysEvent.seq
-}
-
 /** Host half of Message Edit: turn-atomic forks and structurally reversible versions. */
 import type { Context } from '@deepseek-ai/cordis'
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -1074,13 +1065,16 @@ function groupForkRowsToTurns(
       if (pendingAssistantRows.length > 0 && pendingSource !== row.sourceEventSeq) flushAssistant(current)
       pendingAssistantRows.push(row)
     } else if (row.kind === 'system') {
-      const isHead = isHeadSystemRow(row, events)
       const origEvent = row.sourceEventSeq !== undefined ? sourceEvent(row, events) : undefined
       const origText = origEvent?.type === 'system/message'
         ? (origEvent.data.message.content.find(b => b.type === 'text')?.text ?? '')
         : ''
       const isEdited = row.text !== origText
-      if (isHead && !isEdited) {
+      if (!isEdited) {
+        // Unedited system prompts — the head and any later re-injection — are
+        // runtime-managed: the target preset renders its own prompt into the
+        // seed's head node. Baking the source text would pin the old preset,
+        // and re-emitting a later injection would add a second system node.
         continue
       }
       flushAssistant(current)
@@ -1153,7 +1147,13 @@ function groupForkRowsToTurns(
   }
 
   if (current !== undefined) flushAssistant(current)
-  const filteredTurns = turns.filter(turn => turn.items.length > 0)
+  // Turn numbers are handed out while grouping, so a turn that grouping filled
+  // but the seed never emits — an omitted system prompt leaves its turn empty —
+  // must not consume one. The artifact has to open turn 1, or every cold reader
+  // refuses the whole log ("turn/start does not open the expected turn").
+  const filteredTurns = turns
+    .filter(turn => turn.items.length > 0)
+    .map((turn, index) => ({ ...turn, turn: index + 1 }))
   const hasHeader = filteredTurns.some(turn => turn.items.some(item => item.kind === 'header'))
   if (!hasHeader && filteredTurns.length > 0) {
     const header: EpochHeader = {
@@ -1172,6 +1172,21 @@ function groupForkRowsToTurns(
     } else {
       firstTurn.items.unshift(headerItem)
     }
+  }
+  // The format keeps exactly one system prompt, at surface node 0, and rewrites
+  // that node in place when the prompt changes. A seed without any system node
+  // makes the runtime append a mid-conversation system prompt, which cold
+  // readers refuse ("system/message requires a protected first surface head").
+  // Emit an empty head node instead: it carries no preset text, the target
+  // preset still injects its own prompt, and the runtime fills the node in
+  // place on the first step.
+  const firstTurn = filteredTurns[0]
+  if (firstTurn !== undefined && !firstTurn.items.some(item => item.kind === 'system' && item.system !== undefined)) {
+    const userIndex = firstTurn.items.findIndex(item => item.kind === 'user')
+    firstTurn.items.splice(userIndex === -1 ? 0 : userIndex, 0, {
+      kind: 'system',
+      system: createSystemMessage(''),
+    })
   }
   return filteredTurns
 }
@@ -1356,6 +1371,15 @@ function appendSurfaceSeedEvent<T extends SurfaceEventType>(
   } as unknown as SessionEvent<T>)
 }
 
+/** The surface node holding the system prompt, when the seed already has one. */
+function systemHeadSeq(events: SessionEvent[]): SessionSeq | undefined {
+  for (const seq of foldSurface(events).nodes) {
+    const event = events[seq] ?? events.find(candidate => candidate.seq === seq)
+    if (event?.type === 'system/message') return seq as SessionSeq
+  }
+  return undefined
+}
+
 function appendManualTurn(
   events: SessionEvent[],
   manual: ManualTurn,
@@ -1430,12 +1454,16 @@ function appendManualTurn(
       closeStep()
       appendLogSeedEvent(events, 'step/start', { turn, step })
       stepOpen = true
+      // One system prompt lives at surface node 0, so an edited prompt rewrites
+      // that node rather than appending a second one behind the conversation.
+      const headSeq = systemHeadSeq(events)
       appendSurfaceSeedEvent(events, 'system/message', {
         turn,
         step,
         message: item.system,
-      }, {
-        surfaceOp: 'append',
+      }, headSeq === undefined ? { surfaceOp: 'append' } : {
+        surfaceOp: { op: 'replace', startSeq: headSeq, endSeq: headSeq },
+        sourceEventSeqs: [headSeq],
       })
       closeStep()
     } else if (item.kind === 'user' && item.user !== undefined) {
