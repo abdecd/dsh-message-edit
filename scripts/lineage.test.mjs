@@ -1312,3 +1312,192 @@ test('fork omits unedited head system prompt and old tools to allow target prese
   assert.equal(seedAssistantEvents.length, 1)
   assert.equal(seedAssistantEvents[0].data.message.content[0].text, 'Hi!')
 })
+
+
+test('timeline and fork handle pruned tool results without duplicating them or corrupting surface tool-pairing', async () => {
+  const sourceHeader = { id: 'source-pruned-fork', version: 4, createdAt: 1, cwd: '/tmp' }
+  const sourceEvents = [
+    { type: 'turn/start', seq: 0, time: 10, data: { turn: 1 } },
+    {
+      type: 'user/message', seq: 1, time: 11,
+      data: { id: 'u1', role: 'user', content: [{ type: 'text', text: 'Run tool' }], source: { kind: 'user' } },
+      surfaceOp: 'append',
+    },
+    { type: 'request/header', seq: 2, time: 12, data: { header: { config: { provider: 'test-p', model: 'test-m' } } } },
+    {
+      type: 'assistant/message', seq: 3, time: 13,
+      data: {
+        turn: 1, step: 1,
+        message: {
+          id: 'a1', role: 'assistant',
+          content: [
+            { type: 'tool-call', id: 'call_1', name: 'bash', arguments: '{"cmd":"echo 1"}' },
+          ],
+          source: { kind: 'model', provider: 'test-p', model: 'test-m' },
+        },
+      },
+      surfaceOp: 'append',
+    },
+    {
+      type: 'tool/call', seq: 4, time: 14,
+      data: { turn: 1, step: 1, callId: 'call_1', name: 'bash', arguments: '{"cmd":"echo 1"}' },
+    },
+    {
+      type: 'tool/result', seq: 5, time: 15,
+      data: {
+        turn: 1, step: 1,
+        message: {
+          role: 'tool',
+          source: { kind: 'tool', callId: 'call_1' },
+          content: [{ type: 'text', text: 'Original unpruned huge output' }],
+        },
+      },
+      surfaceOp: 'append',
+    },
+    { type: 'step/end', seq: 6, time: 16, data: { turn: 1, step: 1 } },
+    {
+      type: 'compaction/prune', seq: 7, time: 17,
+      data: {
+        shadowedRange: { start: 5, end: 5 },
+        shadowedSeqs: [5],
+        shadowedTokenCount: 50,
+      },
+    },
+    {
+      type: 'tool/result', seq: 8, time: 18,
+      data: {
+        turn: 1, step: 1,
+        message: {
+          role: 'tool',
+          source: { kind: 'tool', callId: 'call_1' },
+          content: [{ type: 'text', text: 'Pruned output' }],
+        },
+      },
+      sourceEventSeqs: [5],
+      surfaceOp: { op: 'replace', startSeq: 5, endSeq: 5 },
+    },
+    { type: 'turn/end', seq: 9, time: 19, data: { turn: 1, reason: { kind: 'completed' } } },
+  ]
+
+  let routeHandler
+  let created
+  const sourceSession = {
+    id: 'source-pruned-fork',
+    header: sourceHeader,
+    snapshotEvents: () => sourceEvents,
+  }
+  const sourceAgent = {
+    session: sourceSession,
+    options: { provider: 'test-p', model: 'test-m' },
+    runMaintenance: async fn => fn(sourceAgent),
+  }
+  const childSession = {
+    id: 'child-pruned-fork',
+    header: { id: 'child-pruned-fork', version: 4, createdAt: 30 },
+    events: [],
+    snapshotEvents() { return this.events },
+  }
+
+  const ctx = {
+    effect: fn => fn(),
+    webServer: { register: entry => { routeHandler = entry.handler } },
+    connection: { requestRejection: () => undefined },
+    sessionQuery: {
+      traceSession: async () => ({
+        complete: true,
+        root: { header: sourceHeader, live: false, persisted: true },
+        target: { header: sourceHeader, live: false, persisted: true },
+        ancestors: [],
+        descendants: [],
+      }),
+      readSession: async () => ({
+        session: sourceHeader,
+        inheritedEventCount: 0,
+        events: sourceEvents,
+      }),
+    },
+    agents: {
+      get: () => sourceAgent,
+      create: async options => {
+        created = options
+        return {
+          agent: {
+            session: childSession,
+            followup: () => {},
+          },
+          dispose: async () => {},
+        }
+      },
+    },
+    sessions: { get: () => undefined, list: () => [], flush: async () => {} },
+    workspaceRegistry: { list: () => [] },
+    get: () => undefined,
+  }
+
+  messageEdit.apply(ctx)
+
+  // 1. Verify timeline only contains the pruned result (seq 8), not seq 5
+  let responseStatus
+  let responseData
+  const getReq = { method: 'GET', url: '/message-edit?sessionId=source-pruned-fork', headers: { host: '127.0.0.1' }, on: () => {} }
+  await routeHandler(getReq, {
+    writeHead: status => { responseStatus = status },
+    end: data => { responseData = JSON.parse(data) },
+  })
+  assert.equal(responseStatus, 200)
+  const toolResults = responseData.messages.filter(m => m.kind === 'tool.result')
+  assert.equal(toolResults.length, 1, 'Timeline must contain only one tool.result block for call_1')
+  assert.equal(toolResults[0].eventSeq, 8, 'Timeline must keep the latest replacement tool.result')
+  assert.equal(toolResults[0].text, 'Pruned output')
+
+  // 2. Forking with draft rows (even if duplicate rows are accidentally passed)
+  const forkPayload = {
+    action: 'fork',
+    sessionId: 'source-pruned-fork',
+    rows: [
+      { kind: 'user', text: 'Run tool', sourceEventSeq: 1 },
+      { kind: 'tool.call', text: '{"cmd":"echo 1"}', toolName: 'bash', callId: 'call_1', sourceEventSeq: 3, sourceBlockIndex: 0 },
+      { kind: 'tool.result', text: 'Pruned output', callId: 'call_1', sourceEventSeq: 8 },
+      // Duplicate row to test defensive filtering
+      { kind: 'tool.result', text: 'Duplicate output', callId: 'call_1', sourceEventSeq: 5 },
+      { kind: 'user', text: 'Next question' },
+    ],
+  }
+
+  const postReq = {
+    method: 'POST',
+    url: '/message-edit',
+    headers: { host: '127.0.0.1' },
+    on(event, listener) {
+      if (event === 'data') listener(Buffer.from(JSON.stringify(forkPayload)))
+      if (event === 'end') queueMicrotask(listener)
+    },
+  }
+
+  let postStatus
+  let postBody
+  await routeHandler(postReq, {
+    writeHead: val => { postStatus = val },
+    end: val => { postBody = JSON.parse(val) },
+  })
+
+  assert.equal(postStatus, 200, JSON.stringify(postBody))
+  assert.ok(created)
+
+  // Verify surface of seed has balanced tool calls and tool results
+  const seedSurface = foldSurface(created.seed)
+  const seedEvents = created.seed
+  let inProgressToolCalls = 0
+  for (const seq of seedSurface.nodes) {
+    const ev = seedEvents[seq] ?? seedEvents.find(e => e.seq === seq)
+    if (ev.type === 'assistant/message') {
+      inProgressToolCalls += ev.data.message.content.filter(b => b.type === 'tool-call').length
+    } else if (ev.type === 'tool/result') {
+      inProgressToolCalls -= 1
+      assert.ok(inProgressToolCalls >= 0, `tool/result at surface seq ${seq} has no matching tool-call`)
+    }
+  }
+  assert.equal(inProgressToolCalls, 0, 'Tool calls must be completely answered on the surface')
+  const seedToolResults = seedEvents.filter(e => e.type === 'tool/result')
+  assert.equal(seedToolResults.length, 1, 'Only one tool/result event should be emitted in seed')
+})

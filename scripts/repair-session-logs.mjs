@@ -95,6 +95,112 @@ function repairSessionTitle(doc) {
   return false
 }
 
+function repairToolPairingBalance(lines) {
+  if (lines.length <= 1) return null
+  let header
+  try {
+    header = JSON.parse(lines[0])
+  } catch {
+    return null
+  }
+  const events = []
+  for (let i = 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue
+    try {
+      events.push(JSON.parse(lines[i]))
+    } catch {
+      return null
+    }
+  }
+
+  const fulfilledCalls = new Set()
+  const toRemoveIndices = new Set()
+  const adjustedTurns = new Map()
+
+  for (let i = 0; i < events.length; i++) {
+    const ev = events[i]
+    if (ev.type === 'tool/result') {
+      const callId = ev.data?.message?.source?.callId ?? ev.data?.message?.toolCallId
+      if (callId) {
+        if (fulfilledCalls.has(callId) && ev.surfaceOp === 'append') {
+          toRemoveIndices.add(i)
+          // If enclosed in an isolated single-event step, drop the step markers too
+          const prev = events[i - 1]
+          const next = events[i + 1]
+          if (prev?.type === 'step/start' && next?.type === 'step/end' &&
+              prev.data?.step === ev.data?.step && next.data?.step === ev.data?.step) {
+            toRemoveIndices.add(i - 1)
+            toRemoveIndices.add(i + 1)
+            const turn = ev.data?.turn
+            const step = ev.data?.step
+            if (turn !== undefined && step !== undefined) {
+              if (!adjustedTurns.has(turn)) adjustedTurns.set(turn, [])
+              adjustedTurns.get(turn).push(step)
+            }
+          }
+        } else {
+          fulfilledCalls.add(callId)
+        }
+      }
+    }
+  }
+
+  if (toRemoveIndices.size === 0) return null
+
+  // Build sequence remapping table
+  const seqMap = new Map()
+  let newSeq = 0
+  for (let i = 0; i < events.length; i++) {
+    if (!toRemoveIndices.has(i)) {
+      seqMap.set(events[i].seq, newSeq++)
+    }
+  }
+
+  function remapSeq(s) {
+    if (s === undefined || s === null) return s
+    return seqMap.has(s) ? seqMap.get(s) : s
+  }
+
+  const repaired = [lines[0]]
+  for (let i = 0; i < events.length; i++) {
+    if (toRemoveIndices.has(i)) continue
+    const ev = structuredClone(events[i])
+    ev.seq = remapSeq(ev.seq)
+    if (ev.surfaceOp && typeof ev.surfaceOp === 'object') {
+      if (typeof ev.surfaceOp.startSeq === 'number') ev.surfaceOp.startSeq = remapSeq(ev.surfaceOp.startSeq)
+      if (typeof ev.surfaceOp.endSeq === 'number') ev.surfaceOp.endSeq = remapSeq(ev.surfaceOp.endSeq)
+    }
+    if (Array.isArray(ev.sourceEventSeqs)) {
+      ev.sourceEventSeqs = ev.sourceEventSeqs.map(remapSeq)
+    }
+    if (ev.data) {
+      if (typeof ev.data.headerSeq === 'number') {
+        ev.data.headerSeq = remapSeq(ev.data.headerSeq)
+      }
+      if (typeof ev.data.sourceEventSeq === 'number') {
+        ev.data.sourceEventSeq = remapSeq(ev.data.sourceEventSeq)
+      }
+      if (Array.isArray(ev.data.shadowedSeqs)) {
+        ev.data.shadowedSeqs = ev.data.shadowedSeqs.map(remapSeq)
+      }
+      if (ev.data.shadowedRange && typeof ev.data.shadowedRange === 'object') {
+        if (typeof ev.data.shadowedRange.start === 'number') ev.data.shadowedRange.start = remapSeq(ev.data.shadowedRange.start)
+        if (typeof ev.data.shadowedRange.end === 'number') ev.data.shadowedRange.end = remapSeq(ev.data.shadowedRange.end)
+      }
+      if (Array.isArray(ev.data.messageSeqs)) {
+        ev.data.messageSeqs = ev.data.messageSeqs.map(remapSeq)
+      }
+      const removedSteps = adjustedTurns.get(ev.data?.turn)
+      if (removedSteps && typeof ev.data?.step === 'number') {
+        const shift = removedSteps.filter(s => s < ev.data.step).length
+        if (shift > 0) ev.data.step -= shift
+      }
+    }
+    repaired.push(JSON.stringify(ev))
+  }
+  return { lines: repaired, removedCount: toRemoveIndices.size }
+}
+
 const argv = process.argv.slice(2)
 const apply = argv.includes('--apply')
 const rootFlag = argv.indexOf('--root')
@@ -179,6 +285,7 @@ function decodeLog(filePath, bytes) {
 
 /** Re-encode with a dedicated header frame, preserving a torn final frame byte-for-byte. */
 function encodeLog(filePath, text, tornTail) {
+  if (!text.endsWith('\n')) text += '\n'
   if (!filePath.endsWith('.zstd')) return Buffer.from(text, 'utf8')
   const headerEnd = text.indexOf('\n')
   if (headerEnd === -1) throw new Error('stored zstd log has no complete header line')
@@ -227,7 +334,13 @@ for (const file of listLogFiles(root)) {
   try {
     const originalBytes = readFileSync(file)
     const { text, tornTail, frameRepairNeeded } = decodeLog(file, originalBytes)
-    const lines = text.split('\n')
+    let lines = text.split('\n')
+    const balanceRepair = repairToolPairingBalance(lines)
+    let removedEvents = 0
+    if (balanceRepair) {
+      lines = balanceRepair.lines
+      removedEvents = balanceRepair.removedCount
+    }
     const repairedLines = []
     let marked = 0
     for (let i = 0; i < lines.length; i += 1) {
@@ -235,8 +348,8 @@ for (const file of listLogFiles(root)) {
       repairedLines.push(repairedLine)
       marked += count
     }
-    if (marked === 0 && !frameRepairNeeded) continue
-    const newText = repairedLines.join('\n')
+    if (marked === 0 && removedEvents === 0 && !frameRepairNeeded) continue
+    const newText = repairedLines.filter(line => line.length > 0).join('\n') + '\n'
     if (apply) {
       // The persistence backend re-resolves the path on every append, so a
       // rename is safe for future writes — but a log that is actively
@@ -268,7 +381,8 @@ for (const file of listLogFiles(root)) {
     filesChanged += 1
     eventsMarked += marked
     const frameNote = frameRepairNeeded ? ' and restored header frame boundary' : ''
-    console.log(`${apply ? 'repaired' : 'would repair'} ${file} (+${marked} marker${marked === 1 ? '' : 's'}${frameNote})`)
+    const balanceNote = removedEvents > 0 ? ` and removed ${removedEvents} duplicate/orphan tool event(s)` : ''
+    console.log(`${apply ? 'repaired' : 'would repair'} ${file} (+${marked} marker${marked === 1 ? '' : 's'}${frameNote}${balanceNote})`)
   } catch (error) {
     failures.push({ file, error: String(error?.message ?? error) })
     console.error(`FAILED ${file}: ${String(error?.message ?? error)}`)

@@ -247,7 +247,7 @@ function newInjectedUserMessage(text: string): UserMessage {
 function isCompactionCheckpoint(event: SessionEvent): boolean {
   if (event.type !== 'user/message') return false
   const source = (event.data as any)?.source
-  return source?.kind === 'plugin' && source?.plugin === 'compact'
+  return source?.kind === 'compact-checkpoint' || (source?.kind === 'plugin' && source?.plugin === 'compact')
 }
 
 function extractCompactionSummary(content: readonly ContentBlock[]): string {
@@ -255,6 +255,10 @@ function extractCompactionSummary(content: readonly ContentBlock[]): string {
     .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
     .map(block => block.text)
     .join('\n')
+  const matchCompact = fullText.match(/<compacted-summary>([\s\S]*?)<\/compacted-summary>/)
+  if (matchCompact?.[1]) {
+    return matchCompact[1].trim()
+  }
   const match = fullText.match(/<summary>([\s\S]*?)<\/summary>/)
   if (match?.[1]) {
     return match[1].trim()
@@ -264,8 +268,8 @@ function extractCompactionSummary(content: readonly ContentBlock[]): string {
 
 function createCompactionUserMessage(summaryText: string, compactionId = crypto.randomUUID()): UserMessage {
   const CHECKPOINT_PREAMBLE = 'This is an automatically generated checkpoint condensing an earlier span of the conversation to free up context. Treat the captured context as established background and build on it without restating it. Continue the task directly from the messages that follow, without acknowledging this checkpoint.'
-  const SUMMARY_OPEN_TAG = '<summary>'
-  const SUMMARY_CLOSE_TAG = '</summary>'
+  const SUMMARY_OPEN_TAG = '<compacted-summary>'
+  const SUMMARY_CLOSE_TAG = '</compacted-summary>'
   return Object.freeze({
     id: crypto.randomUUID() as MessageId,
     role: 'user' as const,
@@ -276,7 +280,7 @@ function createCompactionUserMessage(summaryText: string, compactionId = crypto.
       },
     ] as ContentBlock[]),
     source: Object.freeze({
-      kind: 'plugin' as const,
+      kind: 'compact-checkpoint' as const,
       plugin: 'compact',
       compactionId,
     }),
@@ -301,6 +305,14 @@ function replaceTextBlock(content: readonly ContentBlock[], blockIndex: number, 
 
 /** Fold turn brackets; open tails are included so generated nodes appear immediately. */
 function closedTurns(events: readonly SessionEvent[], includeOpen = true): ClosedTurn[] {
+  const prunedToolResultSeqs = new Set<SessionSeq>()
+  for (const event of events) {
+    if (event.type === 'compaction/prune') {
+      const shadowed = (event.data as any)?.shadowedSeqs ?? []
+      for (const seq of shadowed) prunedToolResultSeqs.add(seq as SessionSeq)
+    }
+  }
+
   const result: ClosedTurn[] = []
   let current: Omit<ClosedTurn, 'endSeq'> | undefined
   for (const event of events) {
@@ -376,7 +388,9 @@ function closedTurns(events: readonly SessionEvent[], includeOpen = true): Close
       continue
     }
     if (event.type === 'tool/result' && (event.data.turn === undefined || event.data.turn === current.turn)) {
-      current.events.push(event)
+      if (!prunedToolResultSeqs.has(event.seq as SessionSeq)) {
+        current.events.push(event)
+      }
       continue
     }
     if (event.type === 'system/message' && (event.data.turn === undefined || event.data.turn === current.turn)) {
@@ -414,6 +428,16 @@ function formatToolResultText(event: ToolResultEvent): string {
 }
 
 function editableMessages(turns: readonly ClosedTurn[]): EditableMessageBlock[] {
+  const latestToolResultByCallId = new Map<string, number>()
+  for (const turn of turns) {
+    for (const event of turn.events) {
+      if (event.type === 'tool/result') {
+        const callId = event.data.message.source.callId
+        if (callId) latestToolResultByCallId.set(callId, event.seq)
+      }
+    }
+  }
+
   const result: EditableMessageBlock[] = []
   for (const turn of turns) {
     // Process events in exact chronological sequence (by event sequence / time)
@@ -512,6 +536,10 @@ function editableMessages(turns: readonly ClosedTurn[]): EditableMessageBlock[] 
           }
         }
       } else if (event.type === 'tool/result') {
+        const callId = event.data.message.source.callId
+        if (callId && latestToolResultByCallId.get(callId) !== event.seq) {
+          continue
+        }
         result.push({
           key: `${String(event.seq)}:res`,
           turn: turn.turn,
@@ -520,7 +548,7 @@ function editableMessages(turns: readonly ClosedTurn[]): EditableMessageBlock[] 
           kind: 'tool.result',
           text: formatToolResultText(event),
           time: event.time,
-          callId: event.data.message.source.callId,
+          callId,
         })
       }
     }
@@ -1384,6 +1412,7 @@ function appendManualTurn(
   events: SessionEvent[],
   manual: ManualTurn,
   emittedCallIds: Set<string>,
+  emittedResultCallIds: Set<string> = new Set<string>(),
 ): void {
   const { turn, items } = manual
   appendLogSeedEvent(events, 'turn/start', { turn })
@@ -1475,6 +1504,11 @@ function appendManualTurn(
       let toolResult = item.toolResult
       let callId = toolResult.source.callId
 
+      if (emittedResultCallIds.has(callId)) {
+        // Result already emitted for this call; drop duplicate to protect surface balance
+        continue
+      }
+
       // Backward compatibility for an old/stale browser bundle, which sent
       // neither provenance nor callId: pair results to open calls by draft order.
       if (stepOpen && !pendingCalls.has(callId) && pendingCalls.size > 0) {
@@ -1492,7 +1526,7 @@ function appendManualTurn(
       if (!stepOpen || !pendingCalls.has(callId)) {
         if (!emittedCallIds.has(callId) && item.toolResultFallbackAssistant !== undefined) {
           openAssistantStep(item.toolResultFallbackAssistant, undefined, undefined, item.assistantStream)
-        } else {
+        } else if (!emittedCallIds.has(callId)) {
           if (!stepOpen) {
             appendLogSeedEvent(events, 'step/start', { turn, step })
             stepOpen = true
@@ -1501,7 +1535,7 @@ function appendManualTurn(
         }
       }
       if (!stepOpen || !pendingCalls.has(callId)) {
-        throw new Error(`无法为工具结果 ${callId} 恢复对应的工具调用。`)
+        continue
       }
       appendSurfaceSeedEvent(events, 'tool/result', {
         turn,
@@ -1512,6 +1546,7 @@ function appendManualTurn(
       }, {
         surfaceOp: 'append',
       })
+      emittedResultCallIds.add(callId)
       pendingCalls.delete(callId)
       if (pendingCalls.size === 0) closeStep()
     } else if (item.kind === 'compaction' && item.compaction !== undefined) {
@@ -1568,15 +1603,19 @@ function appendManualTurn(
 function versionSeed(source: Session, plan: OperationPlan): SessionEvent[] {
   const events = inheritedSeed(source, plan.boundary)
   const emittedCallIds = new Set<string>()
+  const emittedResultCallIds = new Set<string>()
   for (const event of events) {
     if (event.type === 'tool/call' && typeof (event.data as any)?.callId === 'string') {
       emittedCallIds.add((event.data as any).callId)
+    }
+    if (event.type === 'tool/result' && typeof (event.data as any)?.message?.source?.callId === 'string') {
+      emittedResultCallIds.add((event.data as any).message.source.callId)
     }
   }
   /* Marked ignorable: harness builds without this plugin must be able to skip the
      provenance record instead of refusing the whole log (SessionEvent.ignorable). */
   appendLogSeedEvent(events, 'message-edit/version', plan.version, true)
-  for (const manual of plan.manualTurns) appendManualTurn(events, manual, emittedCallIds)
+  for (const manual of plan.manualTurns) appendManualTurn(events, manual, emittedCallIds, emittedResultCallIds)
   return events
 }
 

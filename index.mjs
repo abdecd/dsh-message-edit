@@ -84,10 +84,12 @@ function newInjectedUserMessage(text) {
 function isCompactionCheckpoint(event) {
 	if (event.type !== "user/message") return false;
 	const source = event.data?.source;
-	return source?.kind === "plugin" && source?.plugin === "compact";
+	return source?.kind === "compact-checkpoint" || source?.kind === "plugin" && source?.plugin === "compact";
 }
 function extractCompactionSummary(content) {
 	const fullText = content.filter((block) => block.type === "text").map((block) => block.text).join("\n");
+	const matchCompact = fullText.match(/<compacted-summary>([\s\S]*?)<\/compacted-summary>/);
+	if (matchCompact?.[1]) return matchCompact[1].trim();
 	const match = fullText.match(/<summary>([\s\S]*?)<\/summary>/);
 	if (match?.[1]) return match[1].trim();
 	return fullText;
@@ -98,10 +100,10 @@ function createCompactionUserMessage(summaryText, compactionId = crypto.randomUU
 		role: "user",
 		content: Object.freeze([{
 			type: "text",
-			text: `This is an automatically generated checkpoint condensing an earlier span of the conversation to free up context. Treat the captured context as established background and build on it without restating it. Continue the task directly from the messages that follow, without acknowledging this checkpoint.\n\n<summary>\n${summaryText}\n</summary>`
+			text: `This is an automatically generated checkpoint condensing an earlier span of the conversation to free up context. Treat the captured context as established background and build on it without restating it. Continue the task directly from the messages that follow, without acknowledging this checkpoint.\n\n<compacted-summary>\n${summaryText}\n</compacted-summary>`
 		}]),
 		source: Object.freeze({
-			kind: "plugin",
+			kind: "compact-checkpoint",
 			plugin: "compact",
 			compactionId
 		})
@@ -127,6 +129,11 @@ function replaceTextBlock(content, blockIndex, text) {
 }
 /** Fold turn brackets; open tails are included so generated nodes appear immediately. */
 function closedTurns(events, includeOpen = true) {
+	const prunedToolResultSeqs = /* @__PURE__ */ new Set();
+	for (const event of events) if (event.type === "compaction/prune") {
+		const shadowed = event.data?.shadowedSeqs ?? [];
+		for (const seq of shadowed) prunedToolResultSeqs.add(seq);
+	}
 	const result = [];
 	let current;
 	for (const event of events) {
@@ -177,7 +184,7 @@ function closedTurns(events, includeOpen = true) {
 			continue;
 		}
 		if (event.type === "tool/result" && (event.data.turn === void 0 || event.data.turn === current.turn)) {
-			current.events.push(event);
+			if (!prunedToolResultSeqs.has(event.seq)) current.events.push(event);
 			continue;
 		}
 		if (event.type === "system/message" && (event.data.turn === void 0 || event.data.turn === current.turn)) {
@@ -212,6 +219,11 @@ function formatToolResultText(event) {
 	return parts.join("\n") || "";
 }
 function editableMessages(turns) {
+	const latestToolResultByCallId = /* @__PURE__ */ new Map();
+	for (const turn of turns) for (const event of turn.events) if (event.type === "tool/result") {
+		const callId = event.data.message.source.callId;
+		if (callId) latestToolResultByCallId.set(callId, event.seq);
+	}
 	const result = [];
 	for (const turn of turns) for (const event of turn.events) if (event.type === "system/message") {
 		const text = event.data.message.content.find((b) => b.type === "text")?.text ?? "";
@@ -289,16 +301,20 @@ function editableMessages(turns) {
 			toolName: block.name,
 			callId: block.id
 		});
-	} else if (event.type === "tool/result") result.push({
-		key: `${String(event.seq)}:res`,
-		turn: turn.turn,
-		eventSeq: event.seq,
-		blockIndex: 0,
-		kind: "tool.result",
-		text: formatToolResultText(event),
-		time: event.time,
-		callId: event.data.message.source.callId
-	});
+	} else if (event.type === "tool/result") {
+		const callId = event.data.message.source.callId;
+		if (callId && latestToolResultByCallId.get(callId) !== event.seq) continue;
+		result.push({
+			key: `${String(event.seq)}:res`,
+			turn: turn.turn,
+			eventSeq: event.seq,
+			blockIndex: 0,
+			kind: "tool.result",
+			text: formatToolResultText(event),
+			time: event.time,
+			callId
+		});
+	}
 	return result;
 }
 function retryableTurns(turns) {
@@ -966,7 +982,7 @@ function appendSurfaceSeedEvent(events, type, data, intent) {
 function systemHeadSeq(events) {
 	for (const seq of foldSurface(events).nodes) if ((events[seq] ?? events.find((candidate) => candidate.seq === seq))?.type === "system/message") return seq;
 }
-function appendManualTurn(events, manual, emittedCallIds) {
+function appendManualTurn(events, manual, emittedCallIds, emittedResultCallIds = /* @__PURE__ */ new Set()) {
 	const { turn, items } = manual;
 	appendLogSeedEvent(events, "turn/start", { turn });
 	let step = 1;
@@ -1048,6 +1064,7 @@ function appendManualTurn(events, manual, emittedCallIds) {
 	else if (item.kind === "tool.result" && item.toolResult !== void 0) {
 		let toolResult = item.toolResult;
 		let callId = toolResult.source.callId;
+		if (emittedResultCallIds.has(callId)) continue;
 		if (stepOpen && !pendingCalls.has(callId) && pendingCalls.size > 0) {
 			const inferred = pendingCalls.values().next().value;
 			if (inferred !== void 0) {
@@ -1064,7 +1081,7 @@ function appendManualTurn(events, manual, emittedCallIds) {
 		}
 		if (!stepOpen || !pendingCalls.has(callId)) {
 			if (!emittedCallIds.has(callId) && item.toolResultFallbackAssistant !== void 0) openAssistantStep(item.toolResultFallbackAssistant, void 0, void 0, item.assistantStream);
-			else {
+			else if (!emittedCallIds.has(callId)) {
 				if (!stepOpen) {
 					appendLogSeedEvent(events, "step/start", {
 						turn,
@@ -1075,7 +1092,7 @@ function appendManualTurn(events, manual, emittedCallIds) {
 				pendingCalls.add(callId);
 			}
 		}
-		if (!stepOpen || !pendingCalls.has(callId)) throw new Error(`无法为工具结果 ${callId} 恢复对应的工具调用。`);
+		if (!stepOpen || !pendingCalls.has(callId)) continue;
 		appendSurfaceSeedEvent(events, "tool/result", {
 			turn,
 			step,
@@ -1083,6 +1100,7 @@ function appendManualTurn(events, manual, emittedCallIds) {
 			...item.toolResultError === void 0 ? {} : { error: item.toolResultError },
 			...item.toolResultMeta === void 0 ? {} : { meta: item.toolResultMeta }
 		}, { surfaceOp: "append" });
+		emittedResultCallIds.add(callId);
 		pendingCalls.delete(callId);
 		if (pendingCalls.size === 0) closeStep();
 	} else if (item.kind === "compaction" && item.compaction !== void 0) {
@@ -1142,9 +1160,13 @@ function appendManualTurn(events, manual, emittedCallIds) {
 function versionSeed(source, plan) {
 	const events = inheritedSeed(source, plan.boundary);
 	const emittedCallIds = /* @__PURE__ */ new Set();
-	for (const event of events) if (event.type === "tool/call" && typeof event.data?.callId === "string") emittedCallIds.add(event.data.callId);
+	const emittedResultCallIds = /* @__PURE__ */ new Set();
+	for (const event of events) {
+		if (event.type === "tool/call" && typeof event.data?.callId === "string") emittedCallIds.add(event.data.callId);
+		if (event.type === "tool/result" && typeof event.data?.message?.source?.callId === "string") emittedResultCallIds.add(event.data.message.source.callId);
+	}
 	appendLogSeedEvent(events, "message-edit/version", plan.version, true);
-	for (const manual of plan.manualTurns) appendManualTurn(events, manual, emittedCallIds);
+	for (const manual of plan.manualTurns) appendManualTurn(events, manual, emittedCallIds, emittedResultCallIds);
 	return events;
 }
 function presetIdFromEvents(events, fallback) {
