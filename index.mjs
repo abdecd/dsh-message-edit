@@ -1,5 +1,5 @@
 import { installModelSelection } from "@deepseek-ai/dsh-agent";
-import { foldSurface } from "@deepseek-ai/dsh-session";
+import { SessionLogOffset, foldSurface } from "@deepseek-ai/dsh-session";
 import { createSystemMessage, createToolResultMessage } from "@deepseek-ai/dsh-llm";
 //#region src/shared.ts
 /** Same-origin endpoint owned by the Message Edit host plugin. */
@@ -1165,6 +1165,7 @@ function versionSeed(source, plan) {
 		if (event.type === "tool/call" && typeof event.data?.callId === "string") emittedCallIds.add(event.data.callId);
 		if (event.type === "tool/result" && typeof event.data?.message?.source?.callId === "string") emittedResultCallIds.add(event.data.message.source.callId);
 	}
+	if (plan.boundary >= 0) appendLogSeedEvent(events, "session/end-seed", { inherited: true });
 	appendLogSeedEvent(events, "message-edit/version", plan.version, true);
 	for (const manual of plan.manualTurns) appendManualTurn(events, manual, emittedCallIds, emittedResultCallIds);
 	return events;
@@ -1230,6 +1231,7 @@ function resolveSourceTitle(ctx, source, proposedTitle) {
 }
 async function createVersionAgent(ctx, source, childId, plan, options, route, title, cwd, presetOverride) {
 	const seed = versionSeed(source, plan);
+	const inheritedEventCount = plan.boundary >= 0 ? SessionLogOffset(plan.boundary + 1) : void 0;
 	if (title !== void 0 && (plan.boundary === -1 || plan.version.effect.operation === "fork")) appendLogSeedEvent(seed, "session/title", {
 		title,
 		messageSeqs: [],
@@ -1255,10 +1257,11 @@ async function createVersionAgent(ctx, source, childId, plan, options, route, ti
 	const child = await ctx.agents.create({
 		sessionId: childId,
 		seed,
+		...inheritedEventCount === void 0 ? {} : { inheritedEventCount },
 		meta: {
 			...childCwd === void 0 ? {} : { cwd: childCwd },
 			parentSession: source.id,
-			isSeeded: false,
+			isSeeded: inheritedEventCount !== void 0,
 			...agentPreset === void 0 ? {} : { agentPreset }
 		},
 		agentOptions: options,

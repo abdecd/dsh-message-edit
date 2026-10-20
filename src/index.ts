@@ -7,6 +7,7 @@ import { installModelSelection, type Agent, type AgentHandle, type AgentOptions,
 // import type { PresetBearingSession } from '@deepseek-ai/dsh-agent-presets'
 import {
   foldSurface,
+  SessionLogOffset,
   type SessionId,
   type SessionSeq,
   type Session,
@@ -1614,6 +1615,13 @@ function versionSeed(source: Session, plan: OperationPlan): SessionEvent[] {
   }
   /* Marked ignorable: harness builds without this plugin must be able to skip the
      provenance record instead of refusing the whole log (SessionEvent.ignorable). */
+  // Every non-empty source prefix makes this a real forked session. Mark the
+  // exact inherited cut before appending plugin-owned events; otherwise a retry
+  // from a seeded source copies an ancestor's inherited marker into an unseeded
+  // child, which the durable v4 reader correctly rejects.
+  if (plan.boundary >= 0) {
+    appendLogSeedEvent(events, 'session/end-seed', { inherited: true })
+  }
   appendLogSeedEvent(events, 'message-edit/version', plan.version, true)
   for (const manual of plan.manualTurns) appendManualTurn(events, manual, emittedCallIds, emittedResultCallIds)
   return events
@@ -1716,6 +1724,9 @@ async function createVersionAgent(
   presetOverride?: string,
 ): Promise<AgentHandle> {
   const seed = versionSeed(source, plan)
+  const inheritedEventCount = plan.boundary >= 0
+    ? SessionLogOffset(plan.boundary + 1)
+    : undefined
   if (title !== undefined && (plan.boundary === -1 || plan.version.effect.operation === 'fork')) {
     appendLogSeedEvent(seed, 'session/title', {
       title,
@@ -1745,17 +1756,17 @@ async function createVersionAgent(
   }
   const childCwd = cwd ?? source.header.cwd
   /* RC2 Session.append() cannot set the envelope-level ignorable marker on
-     plugin-owned events. Construct the complete branch snapshot instead: the
-     planned version record already carries ignorable:true, and an unseeded
-     header lets Session accept the full snapshot without the seeded-prefix
-     equality check. The parentSession field still preserves the lineage. */
+     plugin-owned events, so construct the complete branch snapshot. A non-empty
+     inherited prefix is still a seeded Session: pass the exact cut so the
+     persistence reader can distinguish source history from child-owned events. */
   const child = await ctx.agents.create({
     sessionId: childId,
     seed,
+    ...(inheritedEventCount === undefined ? {} : { inheritedEventCount }),
     meta: {
       ...childCwd === undefined ? {} : { cwd: childCwd },
       parentSession: source.id,
-      isSeeded: false,
+      isSeeded: inheritedEventCount !== undefined,
       ...agentPreset === undefined ? {} : { agentPreset },
     },
     agentOptions: options,

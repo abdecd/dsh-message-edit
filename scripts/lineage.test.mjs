@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { foldSurface } from '@deepseek-ai/dsh-session'
+import { foldSurface, Session, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import * as messageEdit from '../index.mjs'
 
 test('retry resolves the durable event mapping rather than a rendered turn position', () => {
@@ -15,7 +15,7 @@ test('retry resolves the durable event mapping rather than a rendered turn posit
   assert.equal(messageEdit.retryTurnForEvent(messages, 404), undefined)
 })
 
-test('retry does not inherit an already-pending inbox message', async () => {
+test('retry preserves the inherited cut when forking a seeded source', async () => {
   const user = {
     id: 'user-1',
     role: 'user',
@@ -23,23 +23,25 @@ test('retry does not inherit an already-pending inbox message', async () => {
     source: { kind: 'user' },
   }
   const events = [
-    { type: 'agent/inbox/spliced', seq: 0, time: 1, data: { target: 'next-turn', start: 0, inserted: [user] } },
-    { type: 'turn/start', seq: 1, time: 2, data: { turn: 1 } },
-    { type: 'user/message', seq: 2, time: 3, data: user, surfaceOp: 'append' },
-    { type: 'request/header', seq: 3, time: 4, data: { header: { config: { provider: 'provider', model: 'model' } } } },
+    // A seeded source carries the previous fork's inherited marker in its log.
+    { type: 'session/end-seed', seq: 0, time: 0, data: { inherited: true } },
+    { type: 'agent/inbox/spliced', seq: 1, time: 1, data: { target: 'next-turn', start: 0, inserted: [user] } },
+    { type: 'turn/start', seq: 2, time: 2, data: { turn: 1 } },
+    { type: 'user/message', seq: 3, time: 3, data: user, surfaceOp: 'append' },
+    { type: 'request/header', seq: 4, time: 4, data: { header: { config: { provider: 'provider', model: 'model' } } } },
     {
-      type: 'assistant/message', seq: 4, time: 5,
+      type: 'assistant/message', seq: 5, time: 5,
       data: { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'old' }], source: { kind: 'model', provider: 'provider', model: 'model' } } },
       surfaceOp: 'append',
     },
-    { type: 'turn/end', seq: 5, time: 6, data: { turn: 1, reason: { kind: 'completed' } } },
+    { type: 'turn/end', seq: 6, time: 6, data: { turn: 1, reason: { kind: 'completed' } } },
   ]
   let routeHandler
   let created
   const followups = []
   const sourceSession = {
     id: 'source',
-    header: { id: 'source', version: 3, createdAt: 1, cwd: '/tmp' },
+    header: { id: 'source', version: 4, createdAt: 1, cwd: '/tmp', isSeeded: true, delegationDepth: 0 },
     snapshotEvents: () => events,
   }
   const sourceAgent = {
@@ -101,7 +103,19 @@ test('retry does not inherit an already-pending inbox message', async () => {
     provider: 'selected-provider', model: 'selected-model', reasoningEffort: 'high',
   })
   assert.ok(Array.isArray(created.seed))
+  assert.equal(created.meta.isSeeded, true)
+  assert.equal(created.inheritedEventCount, 1)
+  assert.equal(created.seed[0].type, 'session/end-seed')
+  assert.equal(created.seed[0].data.inherited, true)
+  assert.equal(created.seed[1].type, 'session/end-seed', 'Child must mark the end of its exact inherited prefix')
+  assert.equal(created.seed[1].data.inherited, true)
+  assert.equal(created.seed[1].seq, created.inheritedEventCount)
   assert.equal(created.seed.some(event => event.type === 'agent/inbox/spliced'), false)
+  const reconstructed = Session.create('child', created.seed, {
+    id: 'child', version: 4, createdAt: 2, parentSession: 'source', isSeeded: true, delegationDepth: 0,
+  }, SessionLogOffset(created.inheritedEventCount))
+  assert.equal(reconstructed.inheritedEventCount, 1)
+  assert.equal(reconstructed.ownEvents()[0].type, 'session/end-seed')
   assert.equal(created.seed.find(event => event.type === 'message-edit/version')?.ignorable, true)
   assert.equal(followups.length, 1)
   assert.equal(followups[0].content[0].text, 'hello')
