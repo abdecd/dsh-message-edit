@@ -294,14 +294,14 @@ test('target peer and cohort regression: package.json and lockfile contain no ol
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
   for (const [name, version] of Object.entries(pkg.devDependencies ?? {})) {
     if (name.startsWith('@deepseek-ai/dsh-')) {
-      assert.equal(version, '0.2.0-rc.2', `devDependency ${name} should be 0.2.0-rc.2`)
+      assert.equal(version, '0.2.1-rc.5', `devDependency ${name} should be 0.2.1-rc.5`)
     }
   }
   for (const [name, version] of Object.entries(pkg.peerDependencies ?? {})) {
     if (name.startsWith('@deepseek-ai/dsh-')) {
-      assert.equal(version, '^0.2.0-rc.2', `peerDependency ${name} should be ^0.2.0-rc.2`)
+      assert.equal(version, '^0.2.1-rc.5', `peerDependency ${name} should be ^0.2.1-rc.5`)
     }
   }
   const lock = await readFile(new URL('../pnpm-lock.yaml', import.meta.url), 'utf8')
-  assert.equal(/@deepseek-ai\/dsh-[^:\s]+@[~^]?0\.1\./.test(lock), false, 'Lockfile must not contain 0.1.x DSH packages')
+  assert.equal(/@deepseek-ai\/dsh-[^@:\s(]+@[~^]?0\.1\./.test(lock), false, 'Lockfile must not contain 0.1.x DSH packages')
 })
