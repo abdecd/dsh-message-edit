@@ -1515,3 +1515,146 @@ test('timeline and fork handle pruned tool results without duplicating them or c
   const seedToolResults = seedEvents.filter(e => e.type === 'tool/result')
   assert.equal(seedToolResults.length, 1, 'Only one tool/result event should be emitted in seed')
 })
+
+test("compaction checkpoint preserves sourceCommandId across fork and edit to avoid corrupt log", async () => {
+  const sourceHeader = { id: "source-cmd-cmp", version: 4, createdAt: 1, cwd: "/tmp" }
+  const sourceEvents = [
+    { type: "turn/start", seq: 0, time: 10, data: { turn: 1 } },
+    {
+      type: "user/message", seq: 1, time: 11,
+      data: { id: "u1", role: "user", content: [{ type: "text", text: "Old prompt" }], source: { kind: "user" } },
+      surfaceOp: "append",
+    },
+    { type: "request/header", seq: 2, time: 12, data: { header: { config: { provider: "test-p", model: "test-m" } } } },
+    {
+      type: "assistant/message", seq: 3, time: 13,
+      data: { turn: 1, step: 1, message: { id: "a1", role: "assistant", content: [{ type: "text", text: "Old reply" }], source: { kind: "model", provider: "test-p", model: "test-m" } } },
+      surfaceOp: "append",
+    },
+    { type: "turn/end", seq: 4, time: 14, data: { turn: 1, reason: { kind: "completed" } } },
+    {
+      type: "compaction/start", seq: 5, time: 15,
+      data: { compactionId: "cmp-cmd-1", sourceCommandId: "cmd-85707098-1", turn: 1 },
+    },
+    {
+      type: "compaction/summary", seq: 6, time: 16,
+      data: {
+        compactionId: "cmp-cmd-1",
+        sourceCommandId: "cmd-85707098-1",
+        summary: [{ type: "text", text: "Original summary with command" }],
+        shadowedRange: { start: 1, end: 3 },
+        shadowedSeqs: [1, 3],
+        shadowedTokenCount: 100,
+        provider: "test-p",
+        model: "test-m",
+      },
+    },
+    {
+      type: "user/message", seq: 7, time: 17,
+      data: {
+        id: "u-cmp",
+        role: "user",
+        content: [{ type: "text", text: "This is an automatically generated checkpoint...\n\n<compacted-summary>\nOriginal summary with command\n</compacted-summary>" }],
+        source: { kind: "compact-checkpoint", compactionId: "cmp-cmd-1", sourceCommandId: "cmd-85707098-1" },
+      },
+      surfaceOp: { op: "replace", startSeq: 1, endSeq: 3 },
+      sourceEventSeqs: [5, 6, 1, 3],
+    },
+    {
+      type: "compaction/end", seq: 8, time: 18,
+      data: { compactionId: "cmp-cmd-1", sourceCommandId: "cmd-85707098-1", turn: 1 },
+    },
+  ]
+
+  let routeHandler
+  let created
+  const followups = []
+
+  const sourceAgent = {
+    session: {
+      id: "source-cmd-cmp",
+      header: sourceHeader,
+      events: sourceEvents,
+      snapshotEvents() { return this.events },
+    },
+    options: { provider: "test-p", model: "test-m" },
+    runMaintenance: async fn => fn(sourceAgent),
+  }
+  const childSession = {
+    id: "child-cmp-cmd",
+    header: { id: "child-cmp-cmd", version: 4, createdAt: 20 },
+    events: [],
+    snapshotEvents() { return this.events },
+  }
+
+  const ctx = {
+    effect: fn => fn(),
+    webServer: { register: entry => { routeHandler = entry.handler } },
+    connection: { requestRejection: () => undefined },
+    agents: {
+      get: () => sourceAgent,
+      create: async options => {
+        created = options
+        return {
+          agent: {
+            session: childSession,
+            followup: message => followups.push(message),
+          },
+          dispose: async () => {},
+        }
+      },
+    },
+    sessions: { flush: async () => {} },
+    workspaceRegistry: { list: () => [] },
+    get: () => undefined,
+  }
+
+  messageEdit.apply(ctx)
+
+  const forkPayload = {
+    action: "fork",
+    sessionId: "source-cmd-cmp",
+    rows: [
+      { kind: "user", text: "Old prompt", sourceEventSeq: 1 },
+      { kind: "assistant.response", text: "Old reply", sourceEventSeq: 3 },
+      { kind: "compaction", text: "Original summary with command", compactionId: "cmp-cmd-1", sourceEventSeq: 7 },
+      { kind: "user", text: "Next prompt" },
+    ],
+  }
+
+  const postReq = {
+    method: "POST",
+    url: "/message-edit",
+    headers: { host: "127.0.0.1" },
+    on(event, listener) {
+      if (event === "data") listener(Buffer.from(JSON.stringify(forkPayload)))
+      if (event === "end") queueMicrotask(listener)
+    },
+  }
+
+  let postStatus
+  let postBody
+  await routeHandler(postReq, {
+    writeHead: val => { postStatus = val },
+    end: val => { postBody = JSON.parse(val) },
+  })
+
+  assert.equal(postStatus, 200, JSON.stringify(postBody))
+  assert.ok(created)
+
+  const seed = created.seed
+  const cmpStart = seed.find(e => e.type === "compaction/start")
+  const cmpSummary = seed.find(e => e.type === "compaction/summary")
+  const cmpUser = seed.find(e => e.type === "user/message" && e.data.source?.kind === "compact-checkpoint")
+  const cmpEnd = seed.find(e => e.type === "compaction/end")
+
+  assert.ok(cmpStart, "compaction/start must exist in seed")
+  assert.ok(cmpSummary, "compaction/summary must exist in seed")
+  assert.ok(cmpUser, "compaction user/message must exist in seed")
+  assert.ok(cmpEnd, "compaction/end must exist in seed")
+
+  assert.equal(cmpStart.data.sourceCommandId, "cmd-85707098-1", "compaction/start must have sourceCommandId")
+  assert.equal(cmpSummary.data.sourceCommandId, "cmd-85707098-1", "compaction/summary must have sourceCommandId")
+  assert.equal(cmpUser.data.source.sourceCommandId, "cmd-85707098-1", "checkpoint user/message must have sourceCommandId")
+  assert.equal(cmpEnd.data.sourceCommandId, "cmd-85707098-1", "compaction/end must have sourceCommandId")
+})

@@ -94,7 +94,7 @@ function extractCompactionSummary(content) {
 	if (match?.[1]) return match[1].trim();
 	return fullText;
 }
-function createCompactionUserMessage(summaryText, compactionId = crypto.randomUUID()) {
+function createCompactionUserMessage(summaryText, compactionId = crypto.randomUUID(), sourceCommandId) {
 	return Object.freeze({
 		id: crypto.randomUUID(),
 		role: "user",
@@ -105,7 +105,8 @@ function createCompactionUserMessage(summaryText, compactionId = crypto.randomUU
 		source: Object.freeze({
 			kind: "compact-checkpoint",
 			plugin: "compact",
-			compactionId
+			compactionId,
+			...sourceCommandId !== void 0 ? { sourceCommandId } : {}
 		})
 	});
 }
@@ -368,7 +369,8 @@ function editPlan(operation, turns, events, fallback, preferred) {
 		if (isCompactionCheckpoint(event)) {
 			const summaryText = extractCompactionSummary(event.data.content);
 			const compactionId = event.data.source?.compactionId ?? crypto.randomUUID();
-			const newMsg = createCompactionUserMessage(operation.text, compactionId);
+			const sourceCommandId = event.data.source?.sourceCommandId;
+			const newMsg = createCompactionUserMessage(operation.text, compactionId, sourceCommandId);
 			const origSummaryEvent = events.findLast((e) => e.type === "compaction/summary" && e.data?.compactionId === compactionId);
 			const startEvent = events.findLast((e) => e.type === "compaction/start" && e.seq < event.seq);
 			const boundary = startEvent ? startEvent.seq - 1 : event.seq - 1;
@@ -391,6 +393,7 @@ function editPlan(operation, turns, events, fallback, preferred) {
 						kind: "compaction",
 						compaction: {
 							compactionId,
+							...sourceCommandId !== void 0 ? { sourceCommandId } : {},
 							summaryText: operation.text,
 							userMessage: newMsg,
 							...origSummaryEvent?.data.shadowedTokenCount !== void 0 ? { shadowedTokenCount: origSummaryEvent.data.shadowedTokenCount } : {}
@@ -818,11 +821,14 @@ function groupForkRowsToTurns(rows, route, events) {
 			const origEvent = sourceEvent(row, events);
 			const compactionId = row.compactionId ?? (origEvent?.type === "user/message" ? origEvent.data.source?.compactionId : void 0) ?? crypto.randomUUID();
 			const origSummaryEvent = events.findLast((e) => e.type === "compaction/summary" && e.data?.compactionId === compactionId);
-			const userMessage = origEvent?.type === "user/message" && isCompactionCheckpoint(origEvent) && row.text === extractCompactionSummary(origEvent.data.content) ? origEvent.data : createCompactionUserMessage(row.text, compactionId);
+			const origSourceCommandId = origEvent?.type === "user/message" ? origEvent.data.source?.sourceCommandId : (origSummaryEvent?.data)?.sourceCommandId;
+			const userMessage = origEvent?.type === "user/message" && isCompactionCheckpoint(origEvent) && row.text === extractCompactionSummary(origEvent.data.content) ? origEvent.data : createCompactionUserMessage(row.text, compactionId, origSourceCommandId);
+			const sourceCommandId = userMessage.source?.sourceCommandId ?? origSourceCommandId;
 			current.items.push({
 				kind: "compaction",
 				compaction: {
 					compactionId,
+					...sourceCommandId !== void 0 ? { sourceCommandId } : {},
 					summaryText: row.text,
 					userMessage,
 					...origSummaryEvent?.data.shadowedTokenCount !== void 0 ? { shadowedTokenCount: origSummaryEvent.data.shadowedTokenCount } : {}
@@ -1106,6 +1112,15 @@ function appendManualTurn(events, manual, emittedCallIds, emittedResultCallIds =
 	} else if (item.kind === "compaction" && item.compaction !== void 0) {
 		closeStep();
 		const { compactionId, summaryText, userMessage, shadowedTokenCount } = item.compaction;
+		const sourceCommandId = item.compaction.sourceCommandId ?? userMessage.source?.sourceCommandId;
+		if (userMessage.source && typeof userMessage.source === "object") {
+			if (userMessage.source.sourceCommandId !== sourceCommandId) {
+				const nextSource = { ...userMessage.source };
+				if (sourceCommandId !== void 0) nextSource.sourceCommandId = sourceCommandId;
+				else delete nextSource.sourceCommandId;
+				userMessage.source = Object.freeze(nextSource);
+			}
+		}
 		const currentSurface = foldSurface(events);
 		const headSeq = currentSurface.nodes[0];
 		const firstIdx = (headSeq !== void 0 ? events[headSeq] ?? events.find((e) => e.seq === headSeq) : void 0)?.type === "system/message" ? 1 : 0;
@@ -1116,10 +1131,12 @@ function appendManualTurn(events, manual, emittedCallIds, emittedResultCallIds =
 			const shadowedSeqs = nodesToShadow;
 			appendLogSeedEvent(events, "compaction/start", {
 				compactionId,
+				...sourceCommandId !== void 0 ? { sourceCommandId } : {},
 				turn
 			});
 			appendLogSeedEvent(events, "compaction/summary", {
 				compactionId,
+				...sourceCommandId !== void 0 ? { sourceCommandId } : {},
 				summary: [{
 					type: "text",
 					text: summaryText
@@ -1147,6 +1164,7 @@ function appendManualTurn(events, manual, emittedCallIds, emittedResultCallIds =
 			});
 			appendLogSeedEvent(events, "compaction/end", {
 				compactionId,
+				...sourceCommandId !== void 0 ? { sourceCommandId } : {},
 				turn
 			});
 		} else appendSurfaceSeedEvent(events, "user/message", userMessage, { surfaceOp: "append" });

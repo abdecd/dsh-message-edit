@@ -169,6 +169,7 @@ interface ManualTurnItem {
   toolResultFallbackAssistant?: AssistantMessage
   compaction?: {
     compactionId: string
+    sourceCommandId?: string
     summaryText: string
     userMessage: UserMessage
     shadowedTokenCount?: number
@@ -267,7 +268,11 @@ function extractCompactionSummary(content: readonly ContentBlock[]): string {
   return fullText
 }
 
-function createCompactionUserMessage(summaryText: string, compactionId = crypto.randomUUID()): UserMessage {
+function createCompactionUserMessage(
+  summaryText: string,
+  compactionId = crypto.randomUUID(),
+  sourceCommandId?: string,
+): UserMessage {
   const CHECKPOINT_PREAMBLE = 'This is an automatically generated checkpoint condensing an earlier span of the conversation to free up context. Treat the captured context as established background and build on it without restating it. Continue the task directly from the messages that follow, without acknowledging this checkpoint.'
   const SUMMARY_OPEN_TAG = '<compacted-summary>'
   const SUMMARY_CLOSE_TAG = '</compacted-summary>'
@@ -284,6 +289,7 @@ function createCompactionUserMessage(summaryText: string, compactionId = crypto.
       kind: 'compact-checkpoint' as const,
       plugin: 'compact',
       compactionId,
+      ...sourceCommandId !== undefined ? { sourceCommandId } : {},
     }),
   }) as unknown as UserMessage
 }
@@ -625,7 +631,8 @@ function editPlan(
     if (isCompactionCheckpoint(event)) {
       const summaryText = extractCompactionSummary(event.data.content)
       const compactionId = (event.data.source as any)?.compactionId ?? crypto.randomUUID()
-      const newMsg = createCompactionUserMessage(operation.text, compactionId)
+      const sourceCommandId = (event.data.source as any)?.sourceCommandId
+      const newMsg = createCompactionUserMessage(operation.text, compactionId, sourceCommandId)
       const origSummaryEvent = events.findLast(
         (e): e is SessionEvent<'compaction/summary'> =>
           e.type === 'compaction/summary' && (e.data as any)?.compactionId === compactionId,
@@ -651,6 +658,7 @@ function editPlan(
             kind: 'compaction',
             compaction: {
               compactionId,
+              ...sourceCommandId !== undefined ? { sourceCommandId } : {},
               summaryText: operation.text,
               userMessage: newMsg,
               ...origSummaryEvent?.data.shadowedTokenCount !== undefined
@@ -1158,13 +1166,18 @@ function groupForkRowsToTurns(
         (e): e is SessionEvent<'compaction/summary'> =>
           e.type === 'compaction/summary' && (e.data as any)?.compactionId === compactionId,
       )
+      const origSourceCommandId = origEvent?.type === 'user/message'
+        ? (origEvent.data.source as any)?.sourceCommandId
+        : (origSummaryEvent?.data as any)?.sourceCommandId
       const userMessage: UserMessage = (origEvent?.type === 'user/message' && isCompactionCheckpoint(origEvent) && row.text === extractCompactionSummary(origEvent.data.content))
         ? origEvent.data
-        : createCompactionUserMessage(row.text, compactionId)
+        : createCompactionUserMessage(row.text, compactionId, origSourceCommandId)
+      const sourceCommandId = (userMessage.source as any)?.sourceCommandId ?? origSourceCommandId
       current.items.push({
         kind: 'compaction',
         compaction: {
           compactionId,
+          ...sourceCommandId !== undefined ? { sourceCommandId } : {},
           summaryText: row.text,
           userMessage,
           ...origSummaryEvent?.data.shadowedTokenCount !== undefined
@@ -1553,6 +1566,22 @@ function appendManualTurn(
     } else if (item.kind === 'compaction' && item.compaction !== undefined) {
       closeStep()
       const { compactionId, summaryText, userMessage, shadowedTokenCount } = item.compaction
+      const sourceCommandId = item.compaction.sourceCommandId
+        ?? (userMessage.source as any)?.sourceCommandId
+
+      if (userMessage.source && typeof userMessage.source === 'object') {
+        const currentSrcCmd = (userMessage.source as any).sourceCommandId
+        if (currentSrcCmd !== sourceCommandId) {
+          const nextSource = { ...(userMessage.source as any) }
+          if (sourceCommandId !== undefined) {
+            nextSource.sourceCommandId = sourceCommandId
+          } else {
+            delete nextSource.sourceCommandId
+          }
+          (userMessage as any).source = Object.freeze(nextSource)
+        }
+      }
+
       const currentSurface = foldSurface(events)
       const headSeq = currentSurface.nodes[0]
       const headEvent = headSeq !== undefined ? (events[headSeq] ?? events.find(e => e.seq === headSeq)) : undefined
@@ -1567,11 +1596,13 @@ function appendManualTurn(
 
         appendLogSeedEvent(events, 'compaction/start', {
           compactionId,
+          ...sourceCommandId !== undefined ? { sourceCommandId } : {},
           turn,
         } as any)
 
         appendLogSeedEvent(events, 'compaction/summary', {
           compactionId,
+          ...sourceCommandId !== undefined ? { sourceCommandId } : {},
           summary: [{ type: 'text', text: summaryText }],
           shadowedRange: { start: startSeq as SessionSeq, end: endSeq as SessionSeq },
           shadowedSeqs: shadowedSeqs as SessionSeq[],
@@ -1587,6 +1618,7 @@ function appendManualTurn(
 
         appendLogSeedEvent(events, 'compaction/end', {
           compactionId,
+          ...sourceCommandId !== undefined ? { sourceCommandId } : {},
           turn,
         } as any)
       } else {
