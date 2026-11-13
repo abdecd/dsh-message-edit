@@ -1184,6 +1184,20 @@ function versionSeed(source, plan) {
 		if (event.type === "tool/result" && typeof event.data?.message?.source?.callId === "string") emittedResultCallIds.add(event.data.message.source.callId);
 	}
 	if (plan.boundary >= 0) appendLogSeedEvent(events, "session/end-seed", { inherited: true });
+	const sourceEvents = source.snapshotEvents();
+	for (const type of [
+		"permission/preset",
+		"sandbox/mode",
+		"approval/policy"
+	]) {
+		const latest = sourceEvents.findLast((event) => event.type === type);
+		if (latest !== void 0) events.push({
+			type,
+			data: latest.data,
+			seq: events.length,
+			time: Date.now()
+		});
+	}
 	appendLogSeedEvent(events, "message-edit/version", plan.version, true);
 	for (const manual of plan.manualTurns) appendManualTurn(events, manual, emittedCallIds, emittedResultCallIds);
 	return events;

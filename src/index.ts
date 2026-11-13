@@ -1654,6 +1654,19 @@ function versionSeed(source: Session, plan: OperationPlan): SessionEvent[] {
   if (plan.boundary >= 0) {
     appendLogSeedEvent(events, 'session/end-seed', { inherited: true })
   }
+  // Permissions are current session state, not part of the selected message
+  // range. A rebuilt fork has no inherited prefix, and an earlier retry/edit
+  // boundary may predate a permission change. Pin each latest knob before agent
+  // initialization so the new-session defaults cannot replace the source state.
+  const sourceEvents = source.snapshotEvents() as readonly { type: string; data: unknown }[]
+  for (const type of ['permission/preset', 'sandbox/mode', 'approval/policy'] as const) {
+    const latest = sourceEvents.findLast(event => event.type === type)
+    if (latest !== undefined) {
+      // These core events are registered by optional harness plugins, whose
+      // SessionEventMap augmentations are not dependencies of this package.
+      events.push({ type, data: latest.data, seq: events.length, time: Date.now() } as unknown as SessionEvent)
+    }
+  }
   appendLogSeedEvent(events, 'message-edit/version', plan.version, true)
   for (const manual of plan.manualTurns) appendManualTurn(events, manual, emittedCallIds, emittedResultCallIds)
   return events

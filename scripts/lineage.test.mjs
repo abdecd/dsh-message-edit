@@ -1658,3 +1658,76 @@ test("compaction checkpoint preserves sourceCommandId across fork and edit to av
   assert.equal(cmpUser.data.source.sourceCommandId, "cmd-85707098-1", "checkpoint user/message must have sourceCommandId")
   assert.equal(cmpEnd.data.sourceCommandId, "cmd-85707098-1", "compaction/end must have sourceCommandId")
 })
+
+for (const [preset, mode, policy] of [
+  ['read-only', 'read-only', 'ask'],
+  ['full-access', 'danger-full-access', 'never'],
+  ['custom', 'workspace-write', 'never'],
+]) {
+  for (const rows of [[], [{ kind: 'user', text: 'selected question' }], [
+    { kind: 'user', text: 'selected question' },
+    { kind: 'assistant.response', text: 'selected reply' },
+  ]]) {
+    test(`fork preserves current ${preset} permissions with ${rows.length} selected rows`, async () => {
+      const permissions = [
+        { type: 'permission/preset', data: { preset } },
+        { type: 'sandbox/mode', data: { mode } },
+        { type: 'approval/policy', data: { policy } },
+      ]
+      const events = [
+        { type: 'permission/preset', data: { preset: 'workspace-write' } },
+        { type: 'sandbox/mode', data: { mode: 'workspace-write' } },
+        { type: 'approval/policy', data: { policy: 'ask' } },
+        ...permissions,
+      ].map((event, seq) => ({ ...event, seq, time: seq }))
+      const session = {
+        id: 'permission-source',
+        header: { id: 'permission-source', version: 4, createdAt: 1 },
+        snapshotEvents: () => events,
+      }
+      const source = {
+        session,
+        options: { provider: 'test', model: 'test' },
+        runMaintenance: async fn => fn(source),
+      }
+      let handler
+      let created
+      const queued = []
+      messageEdit.apply({
+        effect: fn => fn(),
+        webServer: { register: entry => { handler = entry.handler } },
+        connection: { requestRejection: () => undefined },
+        agents: {
+          get: () => source,
+          create: async options => {
+            created = options
+            return { agent: { session, followup: message => queued.push(message) }, dispose: async () => {} }
+          },
+        },
+        sessions: { flush: async () => {} },
+        workspaceRegistry: { list: () => [] },
+        get: () => undefined,
+      })
+      let status
+      let body
+      await handler({
+        method: 'POST', url: '/message-edit', headers: { host: '127.0.0.1' },
+        on(event, listener) {
+          if (event === 'data') listener(Buffer.from(JSON.stringify({ action: 'fork', sessionId: session.id, rows })))
+          if (event === 'end') queueMicrotask(listener)
+        },
+      }, {
+        writeHead: value => { status = value },
+        end: value => { body = JSON.parse(value) },
+      })
+      assert.equal(status, 200, JSON.stringify(body))
+      for (const expected of permissions) {
+        const matching = created.seed.filter(event => event.type === expected.type)
+        assert.equal(matching.length, 1, 'Only the latest permission state should be carried')
+        assert.deepEqual(matching[0].data, expected.data)
+      }
+      assert.equal(queued.length, rows.at(-1)?.kind === 'user' ? 1 : 0)
+      assert.doesNotThrow(() => foldSurface(created.seed))
+    })
+  }
+}
