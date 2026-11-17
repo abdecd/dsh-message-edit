@@ -23,8 +23,8 @@ test('retry preserves the inherited cut when forking a seeded source', async () 
     source: { kind: 'user' },
   }
   const events = [
-    // A seeded source carries the previous fork's inherited marker in its log.
-    { type: 'session/end-seed', seq: 0, time: 0, data: { inherited: true } },
+    // A seeded source can retain a prior user selection before the retry cut.
+    { type: 'model/selection', seq: 0, time: 0, data: { provider: 'old-provider', model: 'old-model', reasoningEffort: 'low' } },
     { type: 'agent/inbox/spliced', seq: 1, time: 1, data: { target: 'next-turn', start: 0, inserted: [user] } },
     { type: 'turn/start', seq: 2, time: 2, data: { turn: 1 } },
     { type: 'user/message', seq: 3, time: 3, data: user, surfaceOp: 'append' },
@@ -105,8 +105,8 @@ test('retry preserves the inherited cut when forking a seeded source', async () 
   assert.ok(Array.isArray(created.seed))
   assert.equal(created.meta.isSeeded, true)
   assert.equal(created.inheritedEventCount, 1)
-  assert.equal(created.seed[0].type, 'session/end-seed')
-  assert.equal(created.seed[0].data.inherited, true)
+  assert.equal(created.seed[0].type, 'model/selection')
+  assert.equal(created.seed[0].data.model, 'old-model')
   assert.equal(created.seed[1].type, 'session/end-seed', 'Child must mark the end of its exact inherited prefix')
   assert.equal(created.seed[1].data.inherited, true)
   assert.equal(created.seed[1].seq, created.inheritedEventCount)
@@ -116,6 +116,13 @@ test('retry preserves the inherited cut when forking a seeded source', async () 
   }, SessionLogOffset(created.inheritedEventCount))
   assert.equal(reconstructed.inheritedEventCount, 1)
   assert.equal(reconstructed.ownEvents()[0].type, 'session/end-seed')
+  const selections = reconstructed.snapshotEvents().filter(event => event.type === 'model/selection')
+  assert.equal(selections.length, 2, 'Keep inherited selection but supersede it in the child suffix')
+  assert.deepEqual(selections.at(-1).data, {
+    provider: 'selected-provider', model: 'selected-model', reasoningEffort: 'high',
+  })
+  assert.ok(reconstructed.ownEvents().includes(selections.at(-1)), 'New selection must survive persistence as a child-owned event')
+
   assert.equal(created.seed.find(event => event.type === 'message-edit/version')?.ignorable, true)
   assert.equal(followups.length, 1)
   assert.equal(followups[0].content[0].text, 'hello')

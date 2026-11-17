@@ -75,7 +75,7 @@ async function clientFixture(next, options = {}) {
       if (name !== 'modelDirectories' || options.composerSelection === undefined) return undefined
       return {
         directoryFor: () => ({
-          store: { getSnapshot: () => ({ current: options.composerSelection }) },
+          store: { getSnapshot: () => ({ current: options.composerSelection, pending: options.pendingSelection }) },
         }),
       }
     },
@@ -116,6 +116,34 @@ test('retry forwards the composer selection before durable projection catches up
     })
   } finally { f.release() }
 })
+
+for (const action of ['retry', 'edit']) {
+  test(`${action} uses the latest in-flight composer model and effort on each generation`, async () => {
+    const options = {
+      composerSelection: { provider: 'old', model: 'old-model', reasoningEffort: 'low' },
+      pendingSelection: { provider: 'new', model: 'new-model', reasoningEffort: 'high' },
+    }
+    const f = await clientFixture(options.composerSelection, options)
+    const generate = () => action === 'retry'
+      ? f.face.retry(1, 'truncate')
+      : f.face.edit({ eventSeq: 3, blockIndex: 0 }, 'edited message', 'truncate')
+    try {
+      f.face.load()
+      await settle()
+      assert.equal(await generate(), true)
+      assert.deepEqual(JSON.parse(f.requests.at(-1).body).route, options.pendingSelection)
+      // A later choice without effort must clear the old effort, not inherit it.
+      options.pendingSelection = { provider: 'latest', model: 'latest-model' }
+      assert.equal(await generate(), true)
+      assert.deepEqual(JSON.parse(f.requests.at(-1).body).route, options.pendingSelection)
+      // Once the switch has settled, current becomes authoritative again.
+      options.composerSelection = options.pendingSelection
+      options.pendingSelection = null
+      assert.equal(await generate(), true)
+      assert.deepEqual(JSON.parse(f.requests.at(-1).body).route, options.composerSelection)
+    } finally { f.release() }
+  })
+}
 
 test('retry waits for delayed session-list publication before reporting success', async () => {
   const f = await clientFixture({ provider: 'provider', model: 'model' }, {

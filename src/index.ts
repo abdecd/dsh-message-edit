@@ -2,6 +2,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type {} from '@deepseek-ai/dsh-client-connection'
+import type {} from '@deepseek-ai/dsh-api-session-controller/types'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { installModelSelection, type Agent, type AgentHandle, type AgentOptions, type AgentSetup, type ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 // import type { PresetBearingSession } from '@deepseek-ai/dsh-agent-presets'
@@ -1769,6 +1770,13 @@ async function createVersionAgent(
   presetOverride?: string,
 ): Promise<AgentHandle> {
   const seed = versionSeed(source, plan)
+  // The branch may retain an old model/selection (or request/header) from its
+  // source. Request listeners alone do not update the durable projection: the
+  // API controller installs its own selection cache when the child is opened
+  // and would hydrate it from that old history. Record the forwarded choice in
+  // the child-owned suffix before creation so all selection owners agree,
+  // including after reconnect/resume. Keep it after the inherited boundary.
+  if (route !== undefined) appendLogSeedEvent(seed, 'model/selection', route, true)
   const inheritedEventCount = plan.boundary >= 0
     ? SessionLogOffset(plan.boundary + 1)
     : undefined

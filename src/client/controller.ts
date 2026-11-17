@@ -71,7 +71,7 @@ function modelRouteOf(value: unknown): ModelRoute | undefined {
 
 interface ModelDirectoryLike {
   directoryFor?: (sessionId: SessionId) => {
-    store?: { getSnapshot?: () => { current?: unknown } }
+    store?: { getSnapshot?: () => { current?: unknown; pending?: unknown } }
   } | undefined
 }
 
@@ -572,16 +572,17 @@ export class MessageEditController {
    * back to the history-derived route. */
   private async composerRoute(): Promise<ModelRoute | undefined> {
     // Read the same per-session directory that the composer model seat renders.
-    // Its local `current` snapshot updates as soon as the selection RPC settles;
-    // the durable projection can arrive one event later through the session
-    // stream, which used to make a just-selected model disappear from Retry.
+    // A switch first publishes `pending`; `current` can still describe the old
+    // route while the selection RPC or its projection is in flight. Capture
+    // the complete pending selection (including an absent/default effort), not
+    // a merge with the historical model/effort.
     try {
       const get = (this.ctx as unknown as { get?: (name: string) => unknown }).get
       const directories = typeof get === 'function'
         ? get.call(this.ctx, 'modelDirectories') as ModelDirectoryLike | undefined
         : undefined
-      const current = directories?.directoryFor?.(this.sessionId)?.store?.getSnapshot?.().current
-      const route = modelRouteOf(current)
+      const snapshot = directories?.directoryFor?.(this.sessionId)?.store?.getSnapshot?.()
+      const route = modelRouteOf(snapshot?.pending) ?? modelRouteOf(snapshot?.current)
       if (route !== undefined) return route
     } catch {
       // Fall through to the durable projection below.

@@ -1263,6 +1263,7 @@ function resolveSourceTitle(ctx, source, proposedTitle) {
 }
 async function createVersionAgent(ctx, source, childId, plan, options, route, title, cwd, presetOverride) {
 	const seed = versionSeed(source, plan);
+	if (route !== void 0) appendLogSeedEvent(seed, "model/selection", route, true);
 	const inheritedEventCount = plan.boundary >= 0 ? SessionLogOffset(plan.boundary + 1) : void 0;
 	if (title !== void 0 && (plan.boundary === -1 || plan.version.effect.operation === "fork")) appendLogSeedEvent(seed, "session/title", {
 		title,
