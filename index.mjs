@@ -1175,7 +1175,7 @@ function appendManualTurn(events, manual, emittedCallIds, emittedResultCallIds =
 		reason: { kind: "completed" }
 	});
 }
-function versionSeed(source, plan) {
+function versionSeed(source, plan, workingDirectory) {
 	const events = inheritedSeed(source, plan.boundary);
 	const emittedCallIds = /* @__PURE__ */ new Set();
 	const emittedResultCallIds = /* @__PURE__ */ new Set();
@@ -1200,6 +1200,7 @@ function versionSeed(source, plan) {
 	}
 	appendLogSeedEvent(events, "message-edit/version", plan.version, true);
 	for (const manual of plan.manualTurns) appendManualTurn(events, manual, emittedCallIds, emittedResultCallIds);
+	if (workingDirectory !== void 0) appendLogSeedEvent(events, "working-directory/change", { cwd: workingDirectory });
 	return events;
 }
 function presetIdFromEvents(events, fallback) {
@@ -1261,8 +1262,8 @@ function resolveSourceTitle(ctx, source, proposedTitle) {
 		}
 	}
 }
-async function createVersionAgent(ctx, source, childId, plan, options, route, title, cwd, presetOverride) {
-	const seed = versionSeed(source, plan);
+async function createVersionAgent(ctx, source, childId, plan, options, route, title, cwd, presetOverride, workingDirectory) {
+	const seed = versionSeed(source, plan, workingDirectory);
 	if (route !== void 0) appendLogSeedEvent(seed, "model/selection", route, true);
 	const inheritedEventCount = plan.boundary >= 0 ? SessionLogOffset(plan.boundary + 1) : void 0;
 	if (title !== void 0 && (plan.boundary === -1 || plan.version.effect.operation === "fork")) appendLogSeedEvent(seed, "session/title", {
@@ -1317,6 +1318,13 @@ async function createVersionAgent(ctx, source, childId, plan, options, route, ti
 function sourceWorkspace(ctx, sessionId) {
 	return ctx.workspaceRegistry.list().find((workspace) => workspace.sessionIds.includes(sessionId));
 }
+function sourceWorkingDirectory(ctx, source, events) {
+	try {
+		const current = ctx.get("workingDirectory")?.get?.(source);
+		if (typeof current === "string" && current.length > 0) return current;
+	} catch {}
+	return events.findLast((event) => event.type === "working-directory/change")?.data.cwd ?? source.header.cwd;
+}
 function operationWorkspace(ctx, sourceId, operation) {
 	if (operation.action === "fork" && operation.workspaceId !== void 0) {
 		const workspace = ctx.workspaceRegistry.get(operation.workspaceId);
@@ -1342,11 +1350,14 @@ async function runOperation(ctx, operation) {
 		try {
 			const events = source.session.snapshotEvents();
 			const title = resolveSourceTitle(ctx, source.session, operation.title);
+			const sourceProject = sourceWorkspace(ctx, sourceId);
 			const workspace = operationWorkspace(ctx, sourceId, operation);
-			const targetCwd = operation.action === "fork" && operation.workspaceId !== void 0 ? workspace?.path : void 0;
+			const targetCwd = operation.action === "fork" && operation.workspaceId !== void 0 && workspace?.id !== sourceProject?.id ? workspace?.path : void 0;
+			const hasCommittedDirectory = events.some((event) => event.type === "working-directory/change");
+			const childWorkingDirectory = targetCwd ?? (hasCommittedDirectory ? sourceWorkingDirectory(ctx, source.session, events) : void 0);
 			const plan = planOperation(operation, events, source.options, operation.route);
 			const options = agentOptions(events, source.options, operation.route);
-			const child = await createVersionAgent(ctx, source.session, childId, plan, options, operation.route, title, targetCwd, operation.action === "fork" ? operation.agentPreset : void 0);
+			const child = await createVersionAgent(ctx, source.session, childId, plan, options, operation.route, title, targetCwd, operation.action === "fork" ? operation.agentPreset : void 0, childWorkingDirectory);
 			inverses.push(() => child.dispose());
 			if (workspace !== void 0) {
 				await workspace.attachSession(childId);

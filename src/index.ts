@@ -92,6 +92,8 @@ declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
     /** Durable branch provenance owned by moeblack/message-edit. */
     'message-edit/version': StoredMessageEditVersionEvent
+    /** DSH's committed current directory; emitted at the end of a rebuilt Fork. */
+    'working-directory/change': { cwd: string }
     'compaction/start': {
       compactionId: string
       sourceCommandId?: string
@@ -1634,7 +1636,11 @@ function appendManualTurn(
   appendLogSeedEvent(events, 'turn/end', { turn, reason: { kind: 'completed' } })
 }
 
-function versionSeed(source: Session, plan: OperationPlan): SessionEvent[] {
+function versionSeed(
+  source: Session,
+  plan: OperationPlan,
+  workingDirectory?: string,
+): SessionEvent[] {
   const events = inheritedSeed(source, plan.boundary)
   const emittedCallIds = new Set<string>()
   const emittedResultCallIds = new Set<string>()
@@ -1670,6 +1676,11 @@ function versionSeed(source: Session, plan: OperationPlan): SessionEvent[] {
   }
   appendLogSeedEvent(events, 'message-edit/version', plan.version, true)
   for (const manual of plan.manualTurns) appendManualTurn(events, manual, emittedCallIds, emittedResultCallIds)
+  if (workingDirectory !== undefined) {
+    // This is the child-owned directory boundary. Put it after reconstructed rows so
+    // tool paths copied from the draft cannot select a stale linked worktree.
+    appendLogSeedEvent(events, 'working-directory/change', { cwd: workingDirectory })
+  }
   return events
 }
 
@@ -1768,8 +1779,9 @@ async function createVersionAgent(
   title?: string,
   cwd?: string,
   presetOverride?: string,
+  workingDirectory?: string,
 ): Promise<AgentHandle> {
-  const seed = versionSeed(source, plan)
+  const seed = versionSeed(source, plan, workingDirectory)
   // The branch may retain an old model/selection (or request/header) from its
   // source. Request listeners alone do not update the durable projection: the
   // API controller installs its own selection cache when the child is opened
@@ -1848,6 +1860,23 @@ function sourceWorkspace(ctx: Context, sessionId: SessionId): Workspace | undefi
   return ctx.workspaceRegistry.list().find(workspace => workspace.sessionIds.includes(sessionId))
 }
 
+function sourceWorkingDirectory(
+  ctx: Context,
+  source: Session,
+  events: readonly SessionEvent[],
+): string | undefined {
+  try {
+    const service = ctx.get('workingDirectory') as { get?: (session: Session) => unknown } | undefined
+    const current = service?.get?.(source)
+    if (typeof current === 'string' && current.length > 0) return current
+  } catch {
+    // Older or headless compositions may not mount the working-directory service.
+  }
+  const lastChange = events.findLast((event): event is SessionEvent<'working-directory/change'> =>
+    event.type === 'working-directory/change')
+  return lastChange?.data.cwd ?? source.header.cwd
+}
+
 function operationWorkspace(
   ctx: Context,
   sourceId: SessionId,
@@ -1883,10 +1912,15 @@ async function runOperation(ctx: Context, operation: MessageEditOperation): Prom
     try {
       const events = source.session.snapshotEvents()
       const title = resolveSourceTitle(ctx, source.session, operation.title)
+      const sourceProject = sourceWorkspace(ctx, sourceId)
       const workspace = operationWorkspace(ctx, sourceId, operation)
-      const targetCwd = operation.action === 'fork' && operation.workspaceId !== undefined
-        ? workspace?.path
-        : undefined
+      const movesWorkspace = operation.action === 'fork'
+        && operation.workspaceId !== undefined
+        && workspace?.id !== sourceProject?.id
+      const targetCwd = movesWorkspace ? workspace?.path : undefined
+      const hasCommittedDirectory = events.some(event => event.type === 'working-directory/change')
+      const childWorkingDirectory = targetCwd
+        ?? (hasCommittedDirectory ? sourceWorkingDirectory(ctx, source.session, events) : undefined)
       const plan = planOperation(operation, events, source.options, operation.route)
       const options = agentOptions(events, source.options, operation.route)
       const child = await createVersionAgent(
@@ -1899,6 +1933,7 @@ async function runOperation(ctx: Context, operation: MessageEditOperation): Prom
         title,
         targetCwd,
         operation.action === 'fork' ? operation.agentPreset : undefined,
+        childWorkingDirectory,
       )
       inverses.push(() => child.dispose())
 

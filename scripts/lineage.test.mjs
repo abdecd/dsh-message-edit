@@ -15,6 +15,97 @@ test('retry resolves the durable event mapping rather than a rendered turn posit
   assert.equal(messageEdit.retryTurnForEvent(messages, 404), undefined)
 })
 
+test('fork preserves the committed worktree directory without changing workspace membership', async () => {
+  const sourceEvents = [
+    { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
+    {
+      type: 'user/message', seq: 1, time: 2,
+      data: { id: 'user', role: 'user', content: [{ type: 'text', text: 'question' }], source: { kind: 'user' } },
+      surfaceOp: 'append',
+    },
+    {
+      type: 'assistant/message', seq: 2, time: 3,
+      data: { turn: 1, step: 1, message: { id: 'assistant', role: 'assistant', content: [{ type: 'text', text: 'answer' }], source: { kind: 'model', provider: 'provider', model: 'model' } } },
+      surfaceOp: 'append',
+    },
+    { type: 'turn/end', seq: 3, time: 4, data: { turn: 1, reason: { kind: 'completed' } } },
+    { type: 'working-directory/change', seq: 4, time: 5, data: { cwd: '/project/.agents/worktrees/dsh-old' } },
+  ]
+  const sourceSession = {
+    id: 'source-worktree',
+    header: { id: 'source-worktree', version: 4, createdAt: 1, cwd: '/project' },
+    snapshotEvents: () => sourceEvents,
+  }
+  const sourceAgent = {
+    session: sourceSession,
+    options: { provider: 'provider', model: 'model' },
+    runMaintenance: async fn => fn(sourceAgent),
+  }
+  const attached = ['source-worktree']
+  const workspace = {
+    id: 'workspace-project',
+    path: '/project',
+    sessionIds: attached,
+    attachSession: async id => { if (!attached.includes(id)) attached.push(id) },
+    detachSession: async id => { const index = attached.indexOf(id); if (index !== -1) attached.splice(index, 1) },
+  }
+  let routeHandler
+  let created
+  const childSession = {
+    id: 'child-worktree',
+    header: { id: 'child-worktree', version: 4, createdAt: 2 },
+    snapshotEvents: () => created?.seed ?? [],
+  }
+  messageEdit.apply({
+    effect: fn => fn(),
+    webServer: { register: entry => { routeHandler = entry.handler } },
+    connection: { requestRejection: () => undefined },
+    agents: {
+      get: () => sourceAgent,
+      create: async options => {
+        created = options
+        childSession.header.cwd = options.meta.cwd
+        childSession.header.parentSession = options.meta.parentSession
+        return { agent: { session: childSession, followup() {} }, dispose: async () => {} }
+      },
+    },
+    sessions: { flush: async () => {} },
+    workspaceRegistry: { list: () => [workspace] },
+    get: name => name === 'workingDirectory'
+      ? { get: () => '/project/.agents/worktrees/dsh-current' }
+      : undefined,
+  })
+
+  let status
+  let body
+  await routeHandler({
+    method: 'POST', url: '/message-edit', headers: { host: '127.0.0.1' },
+    on(event, listener) {
+      if (event === 'data') listener(Buffer.from(JSON.stringify({
+        action: 'fork',
+        sessionId: sourceSession.id,
+        rows: [
+          { kind: 'user', text: 'question', sourceEventSeq: 1, sourceBlockIndex: 0 },
+          { kind: 'assistant.response', text: 'answer', sourceEventSeq: 2, sourceBlockIndex: 0 },
+        ],
+      })))
+      if (event === 'end') queueMicrotask(listener)
+    },
+  }, {
+    writeHead: value => { status = value },
+    end: value => { body = JSON.parse(value) },
+  })
+
+  assert.equal(status, 200, JSON.stringify(body))
+  assert.equal(created.meta.cwd, '/project', 'workspace validation must use the project path')
+  assert.equal(created.meta.parentSession, sourceSession.id)
+  assert.equal(attached.includes(body.sessionId), true, 'child remains attached to its source workspace')
+  const directoryEvent = created.seed.findLast(event => event.type === 'working-directory/change')
+  assert.deepEqual(directoryEvent?.data, { cwd: '/project/.agents/worktrees/dsh-current' })
+  assert.ok(directoryEvent.seq > created.seed.findLast(event => event.type === 'turn/end').seq,
+    'current directory boundary must follow reconstructed rows')
+})
+
 test('retry preserves the inherited cut when forking a seeded source', async () => {
   const user = {
     id: 'user-1',
